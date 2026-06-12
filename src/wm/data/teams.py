@@ -43,6 +43,22 @@ ALIASES: dict[str, str] = {
     "Yugoslavia": "Serbia",  # imperfect but reasonable
     "Soviet Union": "Russia",
     "Netherlands Antilles": "Curaçao",
+    # FIFA-ranking style names
+    "IR Iran": "Iran",
+    "Cabo Verde": "Cape Verde",
+    "China PR": "China",
+    "Korea DPR": "North Korea",
+    "Kyrgyz Republic": "Kyrgyzstan",
+    "St. Kitts and Nevis": "Saint Kitts and Nevis",
+    "St. Lucia": "Saint Lucia",
+    "St. Vincent / Grenadines": "Saint Vincent and the Grenadines",
+    "Brunei Darussalam": "Brunei",
+    "Hong Kong, China": "Hong Kong",
+    "Macau, China": "Macau",
+    "Chinese Taipei": "Taiwan",
+    "FYR Macedonia": "North Macedonia",
+    "Macedonia FYR": "North Macedonia",
+    "Swaziland": "Eswatini",
 }
 
 

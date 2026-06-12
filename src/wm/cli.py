@@ -37,17 +37,21 @@ def ingest(
             res_mod.fetch(raw_dir, registry, force=force)
             console.print(f"  ✓ international results → {raw_dir}/results.csv")
         elif src == "players":
-            console.print(
-                f"  ⚠ Player ratings: download manually from Kaggle\n"
-                f"    https://www.kaggle.com/datasets/stefanoleone992/ea-sports-fc-24-complete-player-dataset\n"
-                f"    Save as: {raw_dir}/players/ea_fc_ratings.csv"
-            )
+            try:
+                dest = pr_mod.fetch(raw_dir, registry, force=force)
+                console.print(f"  ✓ FIFA-24 player attributes → {dest}")
+                console.print(
+                    "    (optional upgrade: Kaggle EA FC dataset with official overalls\n"
+                    f"     → save as {raw_dir}/players/ea_fc_ratings.csv)"
+                )
+            except Exception as e:
+                console.print(f"  ⚠ Player ratings download failed ({e}) — feature is optional")
         elif src == "rankings":
-            console.print(
-                f"  ⚠ FIFA rankings: download manually from Kaggle\n"
-                f"    https://www.kaggle.com/datasets/cashncarry/fifaworldranking\n"
-                f"    Save as: {raw_dir}/rankings/fifa_rankings.csv"
-            )
+            try:
+                dest = rank_mod.fetch(raw_dir, registry, force=force)
+                console.print(f"  ✓ FIFA rankings 1992–2024 → {dest}")
+            except Exception as e:
+                console.print(f"  ⚠ FIFA rankings download failed ({e}) — feature is optional")
         elif src == "weather":
             console.print("  ✓ Weather: fetched on-demand during build-features")
 

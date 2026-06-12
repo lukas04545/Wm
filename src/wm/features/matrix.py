@@ -110,10 +110,11 @@ def build_matrix(
 def _rank_features(matches: pd.DataFrame, rankings_df: pd.DataFrame | None) -> pd.DataFrame | None:
     if rankings_df is None:
         return None
+    index = rank_mod.RankIndex(rankings_df)
     rows = []
     for _, row in matches.iterrows():
-        rh, ph = rank_mod.get_rank_as_of(rankings_df, row["home_team"], row["date"])
-        ra, pa = rank_mod.get_rank_as_of(rankings_df, row["away_team"], row["date"])
+        rh, ph = index.lookup(row["home_team"], row["date"])
+        ra, pa = index.lookup(row["away_team"], row["date"])
         rows.append({
             "fifa_rank_home": rh,
             "fifa_rank_away": ra,
@@ -126,8 +127,19 @@ def _rank_features(matches: pd.DataFrame, rankings_df: pd.DataFrame | None) -> p
 def _squad_features(matches: pd.DataFrame, squad_df: pd.DataFrame | None) -> pd.DataFrame | None:
     if squad_df is None:
         return None
+    # Squad snapshots describe a specific era; applying them to older matches
+    # would leak future player quality into historical training rows.
+    valid_from = pd.Timestamp(squad_df.attrs.get("valid_from", "1900-01-01"))
+    nan_feat = {f"{k}_{side}": float("nan")
+                for k in ["squad_mean_top25", "squad_mean_top11", "squad_max", "squad_age"]
+                for side in ["home", "away"]}
+    nan_feat["squad_diff_top25"] = float("nan")
+
     rows = []
     for _, row in matches.iterrows():
+        if row["date"] < valid_from:
+            rows.append(dict(nan_feat))
+            continue
         sh = squad_df.loc[row["home_team"]] if row["home_team"] in squad_df.index else None
         sa = squad_df.loc[row["away_team"]] if row["away_team"] in squad_df.index else None
         feat: dict[str, float] = {}
@@ -140,8 +152,11 @@ def _squad_features(matches: pd.DataFrame, squad_df: pd.DataFrame | None) -> pd.
             else:
                 for k in ["squad_mean_top25", "squad_mean_top11", "squad_max", "squad_age"]:
                     feat[f"{k}_{side}"] = float("nan")
-        if "squad_mean_top25_home" in feat and "squad_mean_top25_away" in feat:
-            feat["squad_diff_top25"] = feat["squad_mean_top25_home"] - feat["squad_mean_top25_away"]
+        h_sq = feat["squad_mean_top25_home"]
+        a_sq = feat["squad_mean_top25_away"]
+        feat["squad_diff_top25"] = (
+            h_sq - a_sq if not (pd.isna(h_sq) or pd.isna(a_sq)) else float("nan")
+        )
         rows.append(feat)
     return pd.DataFrame(rows, index=matches.index)
 
