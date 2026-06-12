@@ -41,12 +41,16 @@ def build_matrix(
     confs = load_confederations(wc_path) if wc_path.exists() else {}
     elo_cfg = cfg.elo
 
-    # 1. Elo features
+    # 1. Elo + attack/defence rating features
     elo_df, _ = elo_rolling.compute(matches, elo_cfg)
     elo_df = elo_df.set_index("match_id")
 
-    # 2. Form features
-    form_df = form.compute_form(matches, cfg.features.form_windows)
+    # 2. Form features (opponent-adjusted via pre-match Elo)
+    elo_lookup = {
+        mid: (r["elo_home_before"], r["elo_away_before"])
+        for mid, r in elo_df[["elo_home_before", "elo_away_before"]].iterrows()
+    }
+    form_df = form.compute_form(matches, cfg.features.form_windows, elo_lookup=elo_lookup)
     rest_df = form.compute_rest_days(matches)
     h2h_df = form.compute_h2h(matches, cfg.features.h2h_window)
 
@@ -79,7 +83,10 @@ def build_matrix(
                      "goals_home", "goals_away", "tournament_tier", "is_neutral"]].copy()
 
     feat = feat.join(elo_df[["elo_home_before", "elo_away_before",
-                               "elo_diff_before", "elo_expected_home"]], on="match_id")
+                               "elo_diff_before", "elo_expected_home",
+                               "att_home_before", "def_home_before",
+                               "att_away_before", "def_away_before",
+                               "att_diff_before", "def_diff_before"]], on="match_id")
     feat = feat.join(form_df)
     feat = feat.join(rest_df)
     feat = feat.join(h2h_df)

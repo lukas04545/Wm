@@ -51,10 +51,13 @@ def build_fixture_row(
     rankings_df: pd.DataFrame | None,
     cfg: cfg_mod.Config,
     historical_form: dict | None = None,
+    team_state: dict[str, dict] | None = None,
 ) -> pd.DataFrame:
     """
     Build a single feature row for a fixture.
-    historical_form: optional dict with pre-computed form features for teams.
+    team_state: {team: state} from wm.features.state.compute_team_state —
+    supplies real current form/att/def features instead of NaN.
+    historical_form: legacy per-key override dict (kept for compatibility).
     """
     wc_path = cfg_mod.ROOT / "config" / "wc2026.yaml"
     confs = load_confederations(wc_path) if wc_path.exists() else {}
@@ -107,16 +110,32 @@ def build_fixture_row(
         "sample_weight": 1.0,
     }
 
-    # Add form features with defaults (NaN = unknown → model handles)
-    for side in ["home", "away"]:
+    # Form + rating-state features from the team-state snapshot
+    # (NaN where unknown → model handles)
+    state_h = (team_state or {}).get(home, {})
+    state_a = (team_state or {}).get(away, {})
+    for side, st in [("home", state_h), ("away", state_a)]:
         for W in cfg.features.form_windows:
-            for stat in ["ppg", "gf_pg", "ga_pg", "gd_pg", "winrate"]:
+            for stat in ["ppg", "gf_pg", "ga_pg", "gd_pg", "winrate",
+                         "perf_vs_elo", "opp_elo"]:
                 key = f"{side}_{stat}_{W}"
                 if historical_form and key in historical_form:
                     row[key] = historical_form[key]
                 else:
-                    row[key] = np.nan
-            row[f"{side}_n_matches_{W}"] = 0.0
+                    row[key] = st.get(f"{stat}_{W}", np.nan)
+            row[f"{side}_n_matches_{W}"] = st.get(f"n_matches_{W}", 0.0)
+        row[f"{side}_ewma_gf"] = st.get("ewma_gf", np.nan)
+        row[f"{side}_ewma_ga"] = st.get("ewma_ga", np.nan)
+    row["att_home_before"] = state_h.get("att", np.nan)
+    row["def_home_before"] = state_h.get("def", np.nan)
+    row["att_away_before"] = state_a.get("att", np.nan)
+    row["def_away_before"] = state_a.get("def", np.nan)
+    if state_h and state_a:
+        row["att_diff_before"] = state_h.get("att", 0.0) - state_a.get("att", 0.0)
+        row["def_diff_before"] = state_h.get("def", 0.0) - state_a.get("def", 0.0)
+    else:
+        row["att_diff_before"] = np.nan
+        row["def_diff_before"] = np.nan
 
     # Squad features
     if squad_df is not None:

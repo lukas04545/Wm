@@ -294,12 +294,14 @@ def simulate(
     console.print(f"[bold blue]Loading models...[/bold blue]")
     predictor, dc = persistence.load(cfg.path("models"))
 
-    # Compute current Elo from all historical matches
+    # Compute current team state (Elo, att/def ratings, form) from history
     from wm.data import build as build_mod
+    from wm.features.state import compute_team_state
     interim_dir = cfg.path("data_interim")
     matches = build_mod.load(interim_dir / "matches.parquet")
-    elo_ratings = get_current_ratings(matches, cfg.elo)
-    console.print(f"  ✓ Elo ratings for {len(elo_ratings)} teams")
+    team_state = compute_team_state(matches, cfg)
+    elo_ratings = {t: s["elo"] for t, s in team_state.items()}
+    console.print(f"  ✓ Team state (Elo, att/def, form) for {len(team_state)} teams")
 
     squad_df = pr_mod.get_squad_features(cfg.path("data_raw"))
     rankings_df = rank_mod.load(cfg.path("data_raw"))
@@ -312,6 +314,7 @@ def simulate(
         cfg=cfg,
         squad_df=squad_df,
         rankings_df=rankings_df,
+        team_state=team_state,
     )
     results = simulator.run(runs, seed=seed)
 
@@ -368,7 +371,7 @@ def predict(
     import pandas as pd
     from wm import config as cfg_mod
     from wm.models import persistence
-    from wm.features.elo_rolling import get_current_ratings
+    from wm.features.state import compute_team_state
     from wm.sim.match_sampler import build_fixture_row
     from wm.data import build as build_mod
     from wm.ingest import player_ratings as pr_mod, fifa_rankings as rank_mod
@@ -377,7 +380,8 @@ def predict(
     predictor, _ = persistence.load(cfg.path("models"))
 
     matches = build_mod.load(cfg.path("data_interim") / "matches.parquet")
-    elo = get_current_ratings(matches, cfg.elo)
+    team_state = compute_team_state(matches, cfg)
+    elo = {t: s["elo"] for t, s in team_state.items()}
 
     squad_df = pr_mod.get_squad_features(cfg.path("data_raw"))
     rankings_df = rank_mod.load(cfg.path("data_raw"))
@@ -393,6 +397,7 @@ def predict(
         squad_df=squad_df,
         rankings_df=rankings_df,
         cfg=cfg,
+        team_state=team_state,
     )
 
     result = predictor.predict(row)

@@ -57,7 +57,7 @@ def _load_state(cfg: cfg_mod.Config) -> None:
     # Load models
     try:
         from wm.models import persistence
-        from wm.features.elo_rolling import get_current_ratings
+        from wm.features.state import compute_team_state
         from wm.data import build as build_mod
 
         predictor, dc = persistence.load(models_dir)
@@ -66,8 +66,11 @@ def _load_state(cfg: cfg_mod.Config) -> None:
 
         try:
             matches = build_mod.load(interim_dir / "matches.parquet")
-            _state["elo_ratings"] = get_current_ratings(matches, cfg.elo)
+            team_state = compute_team_state(matches, cfg)
+            _state["team_state"] = team_state
+            _state["elo_ratings"] = {t: s["elo"] for t, s in team_state.items()}
         except FileNotFoundError:
+            _state["team_state"] = None
             _state["elo_ratings"] = {}
 
         # Optional enrichments
@@ -164,6 +167,7 @@ def create_app(config_path: Path | None = None) -> FastAPI:
                 squad_df=_state.get("squad_df"),
                 rankings_df=_state.get("rankings_df"),
                 cfg=cfg,
+                team_state=_state.get("team_state"),
             )
 
             result = predictor.predict(row)
@@ -219,6 +223,7 @@ def create_app(config_path: Path | None = None) -> FastAPI:
                     cfg=cfg,
                     squad_df=_state.get("squad_df"),
                     rankings_df=_state.get("rankings_df"),
+                    team_state=_state.get("team_state"),
                 )
                 results = simulator.run(req.runs, seed=req.seed)
                 _state["sim_results"] = results

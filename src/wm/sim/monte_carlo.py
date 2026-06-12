@@ -38,6 +38,7 @@ class TournamentSimulator:
         cfg: cfg_mod.Config,
         squad_df: pd.DataFrame | None = None,
         rankings_df: pd.DataFrame | None = None,
+        team_state: dict[str, dict] | None = None,
     ):
         self.groups = groups
         self.predictor = predictor
@@ -45,6 +46,7 @@ class TournamentSimulator:
         self.cfg = cfg
         self.squad_df = squad_df
         self.rankings_df = rankings_df
+        self.team_state = team_state
         # cache per matchup: (lambda_home, lambda_away, ensemble_wdl)
         self._match_cache: dict[tuple, tuple[float, float, np.ndarray]] = {}
 
@@ -125,6 +127,7 @@ class TournamentSimulator:
             squad_df=self.squad_df,
             rankings_df=self.rankings_df,
             cfg=self.cfg,
+            team_state=self.team_state,
         )
 
     def _predict_fn_wrapper(self, noise: float, rng: np.random.Generator):

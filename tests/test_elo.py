@@ -41,7 +41,8 @@ def test_gd_multiplier():
 def test_elo_update_home_win():
     cfg = EloConfig()
     matches = pd.DataFrame([make_match("TeamA", "TeamB", 2, 0, neutral=True)])
-    elo_df, ratings = compute(matches, cfg)
+    elo_df, state = compute(matches, cfg)
+    ratings = state["elo"]
     # Winner should gain rating
     assert ratings["TeamA"] > cfg.initial
     assert ratings["TeamB"] < cfg.initial
@@ -50,7 +51,8 @@ def test_elo_update_home_win():
 def test_elo_update_draw():
     cfg = EloConfig()
     matches = pd.DataFrame([make_match("TeamA", "TeamB", 1, 1, neutral=True)])
-    elo_df, ratings = compute(matches, cfg)
+    elo_df, state = compute(matches, cfg)
+    ratings = state["elo"]
     # Draw: equal teams → no change
     assert abs(ratings["TeamA"] - cfg.initial) < 1e-6
     assert abs(ratings["TeamB"] - cfg.initial) < 1e-6
@@ -65,7 +67,8 @@ def test_elo_conservation():
         make_match("A", "C", 1, 1, neutral=True),
     ])
     matches["match_id"] = range(len(matches))
-    _, ratings = compute(matches, cfg)
+    _, state = compute(matches, cfg)
+    ratings = state["elo"]
     # Sum of all ratings = initial * n_teams (conservation)
     total = sum(ratings.values())
     # 4 teams × 1500 = 6000
