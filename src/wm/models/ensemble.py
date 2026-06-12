@@ -34,6 +34,37 @@ def independent_poisson_grid(lh: float, la: float, max_g: int = 10) -> np.ndarra
     return grid
 
 
+def reshape_grid_to_wdl(grid: np.ndarray, target_wdl: np.ndarray) -> np.ndarray:
+    """
+    Rescale a scoreline grid so its win/draw/loss marginals equal target_wdl
+    ([p_away, p_draw, p_home]) while preserving the within-region shape of the
+    scoreline distribution. This is how the simulator injects the strong,
+    calibrated ensemble outcome probabilities into the Poisson-shaped grid —
+    so the neural net and GBM affect sampled scorelines (and championship odds),
+    not just the headline W/D/L numbers.
+    """
+    n = grid.shape[0]
+    away_mask = np.triu(np.ones((n, n)), 1)   # home < away
+    draw_mask = np.eye(n)
+    home_mask = np.tril(np.ones((n, n)), -1)  # home > away
+
+    cur_away = float((grid * away_mask).sum())
+    cur_draw = float((grid * draw_mask).sum())
+    cur_home = float((grid * home_mask).sum())
+
+    scale = np.ones((n, n))
+    if cur_away > 1e-12:
+        scale = np.where(away_mask > 0, target_wdl[0] / cur_away, scale)
+    if cur_draw > 1e-12:
+        scale = np.where(draw_mask > 0, target_wdl[1] / cur_draw, scale)
+    if cur_home > 1e-12:
+        scale = np.where(home_mask > 0, target_wdl[2] / cur_home, scale)
+
+    out = grid * scale
+    s = out.sum()
+    return out / s if s > 0 else grid
+
+
 def _softmax(z: np.ndarray) -> np.ndarray:
     z = z - z.max()
     e = np.exp(z)

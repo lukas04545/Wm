@@ -64,10 +64,10 @@ auto-downloaded attribute-based ratings.
 | Layer | What it does |
 |---|---|
 | **Data** | International results 1872–present (GitHub), EA FC squad ratings, FIFA rankings, Open-Meteo climate normals for all 18 venues |
-| **Features** | Rolling Elo (K scaled by tournament tier), form windows (5/10/15), rest days, head-to-head, travel km, altitude, heat/humidity, confederation strength |
-| **Models** | LightGBM multiclass W/D/L + two LightGBM Poisson goal regressors, blended and temperature-calibrated; Dixon-Coles as reference |
+| **Features** | Rolling Elo (K scaled by tournament tier), form windows (5/10/15), rest days, head-to-head, travel km, altitude, heat/humidity, confederation strength, squad ratings, FIFA rank — plus GDP per capita, population, World Cup pedigree (titles/appearances), and host-nation status (93 features total) |
+| **Models** | Three-branch ensemble: LightGBM W/D/L classifier + a backprop neural net (NumPy MLP) + LightGBM Poisson goal regressors. Convex blend weights fitted on validation, temperature-calibrated; Dixon-Coles as reference |
 | **Split** | 80% of time-sorted matches → training, last 20% → validation (no temporal leakage) |
-| **Simulation** | Exact 2026 format: 12 groups → top 2 + 8 best thirds → R32 → … → Final, with extra time, penalties, and per-run squad-strength noise |
+| **Simulation** | Exact 2026 format: 12 groups → top 2 + 8 best thirds → R32 → … → Final. Scoreline grids are reshaped to the calibrated ensemble W/D/L, with extra time, penalties, and per-run squad-strength noise |
 
 ## Development
 

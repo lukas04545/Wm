@@ -46,3 +46,26 @@ def test_probabilities_sum_to_one():
     from wm.models.ensemble import independent_poisson_grid
     grid = independent_poisson_grid(1.5, 1.2, max_g=10)
     assert abs(grid.sum() - 1.0) < 1e-6
+
+
+def test_reshape_grid_matches_target_wdl():
+    """After reshaping, the grid's W/D/L marginals must equal the target."""
+    from wm.models.ensemble import (
+        independent_poisson_grid, reshape_grid_to_wdl, scoreline_grid_to_wdl
+    )
+    grid = independent_poisson_grid(1.4, 1.1, max_g=10)
+    target = np.array([0.25, 0.30, 0.45])  # [away, draw, home]
+    reshaped = reshape_grid_to_wdl(grid, target)
+    assert abs(reshaped.sum() - 1.0) < 1e-9
+    got = scoreline_grid_to_wdl(reshaped)
+    assert np.allclose(got, target, atol=1e-6)
+
+
+def test_reshape_preserves_within_region_shape():
+    """Reshaping must keep the relative ordering of scorelines within a region."""
+    from wm.models.ensemble import independent_poisson_grid, reshape_grid_to_wdl
+    grid = independent_poisson_grid(1.6, 1.0, max_g=10)
+    target = np.array([0.2, 0.25, 0.55])
+    reshaped = reshape_grid_to_wdl(grid, target)
+    # 2-0 and 3-0 are both home wins; their ratio must be unchanged
+    assert reshaped[2, 0] / reshaped[3, 0] == pytest.approx(grid[2, 0] / grid[3, 0])

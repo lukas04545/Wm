@@ -10,8 +10,11 @@ import pandas as pd
 from wm import config as cfg_mod
 from wm.data import build as build_mod
 from wm.data.teams import canonical, load_confederations, CONFEDERATION_STRENGTH
-from wm.features import elo_rolling, form, context
+from wm.features import elo_rolling, form, context, team_meta
 from wm.ingest import player_ratings as pr_mod, fifa_rankings as rank_mod
+
+# 2026 World Cup host nations get a home-advantage signal at neutral venues
+HOST_NATIONS = {"United States", "Mexico", "Canada"}
 
 # Target columns for model training
 TARGET_WDL = "label_wdl"     # 2=home win, 1=draw, 0=away win
@@ -68,6 +71,9 @@ def build_matrix(
     # 6. Squad strength (optional, joined by year)
     squad_feats = _squad_features(matches, squad_df)
 
+    # 7. Socioeconomic & World Cup pedigree background covariates
+    meta_feats = _meta_features(matches)
+
     # Assemble
     feat = matches[["match_id", "date", "home_team", "away_team",
                      "goals_home", "goals_away", "tournament_tier", "is_neutral"]].copy()
@@ -90,6 +96,7 @@ def build_matrix(
         feat = feat.join(rank_feats)
     if squad_feats is not None:
         feat = feat.join(squad_feats)
+    feat = feat.join(meta_feats)
 
     # Target
     feat[TARGET_WDL] = matches["outcome"].map({1: 2, 0: 1, -1: 0}).values
@@ -105,6 +112,32 @@ def build_matrix(
     )
 
     return feat
+
+
+def _meta_features(matches: pd.DataFrame) -> pd.DataFrame:
+    """Socioeconomic and World Cup pedigree covariates (static team priors)."""
+    rows = []
+    for _, row in matches.iterrows():
+        h, a = row["home_team"], row["away_team"]
+        gdp_h, gdp_a = team_meta.gdp_per_capita(h), team_meta.gdp_per_capita(a)
+        pop_h, pop_a = team_meta.population(h), team_meta.population(a)
+        title_h, title_a = team_meta.wc_titles(h), team_meta.wc_titles(a)
+        app_h, app_a = team_meta.wc_appearances(h), team_meta.wc_appearances(a)
+        is_host_h = float(canonical(h) in HOST_NATIONS)
+        is_host_a = float(canonical(a) in HOST_NATIONS)
+        rows.append({
+            "log_gdp_home": math.log(gdp_h), "log_gdp_away": math.log(gdp_a),
+            "log_gdp_diff": math.log(gdp_h) - math.log(gdp_a),
+            "log_pop_home": math.log(pop_h), "log_pop_away": math.log(pop_a),
+            "log_pop_diff": math.log(pop_h) - math.log(pop_a),
+            "wc_titles_home": title_h, "wc_titles_away": title_a,
+            "wc_titles_diff": title_h - title_a,
+            "wc_apps_home": app_h, "wc_apps_away": app_a,
+            "wc_apps_diff": app_h - app_a,
+            "is_host_home": is_host_h, "is_host_away": is_host_a,
+            "host_diff": is_host_h - is_host_a,
+        })
+    return pd.DataFrame(rows, index=matches.index)
 
 
 def _rank_features(matches: pd.DataFrame, rankings_df: pd.DataFrame | None) -> pd.DataFrame | None:

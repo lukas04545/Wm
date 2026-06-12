@@ -147,4 +147,25 @@ def build_fixture_row(
         row["fifa_rank_diff"] = (ra - rh) if not (pd.isna(rh) or pd.isna(ra)) else np.nan
         row["fifa_points_diff"] = (ph - pa) if not (pd.isna(ph) or pd.isna(pa)) else np.nan
 
+    # Socioeconomic & World Cup pedigree covariates (must match training matrix)
+    import math
+    from wm.features import team_meta
+    from wm.features.matrix import HOST_NATIONS
+    gdp_h, gdp_a = team_meta.gdp_per_capita(home), team_meta.gdp_per_capita(away)
+    pop_h, pop_a = team_meta.population(home), team_meta.population(away)
+    title_h, title_a = team_meta.wc_titles(home), team_meta.wc_titles(away)
+    app_h, app_a = team_meta.wc_appearances(home), team_meta.wc_appearances(away)
+    host_h = float(canonical(home) in HOST_NATIONS)
+    host_a = float(canonical(away) in HOST_NATIONS)
+    row.update({
+        "log_gdp_home": math.log(gdp_h), "log_gdp_away": math.log(gdp_a),
+        "log_gdp_diff": math.log(gdp_h) - math.log(gdp_a),
+        "log_pop_home": math.log(pop_h), "log_pop_away": math.log(pop_a),
+        "log_pop_diff": math.log(pop_h) - math.log(pop_a),
+        "wc_titles_home": title_h, "wc_titles_away": title_a,
+        "wc_titles_diff": title_h - title_a,
+        "wc_apps_home": app_h, "wc_apps_away": app_a, "wc_apps_diff": app_h - app_a,
+        "is_host_home": host_h, "is_host_away": host_a, "host_diff": host_h - host_a,
+    })
+
     return pd.DataFrame([row])

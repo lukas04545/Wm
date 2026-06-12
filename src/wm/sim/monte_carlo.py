@@ -18,7 +18,7 @@ import pandas as pd
 from tqdm import tqdm
 
 from wm import config as cfg_mod
-from wm.models.ensemble import MatchPredictor, independent_poisson_grid
+from wm.models.ensemble import MatchPredictor, independent_poisson_grid, reshape_grid_to_wdl
 from wm.sim import tournament as trn
 from wm.sim.match_sampler import build_fixture_row
 
@@ -45,30 +45,34 @@ class TournamentSimulator:
         self.cfg = cfg
         self.squad_df = squad_df
         self.rankings_df = rankings_df
-        self._lambda_cache: dict[tuple, tuple[float, float]] = {}
+        # cache per matchup: (lambda_home, lambda_away, ensemble_wdl)
+        self._match_cache: dict[tuple, tuple[float, float, np.ndarray]] = {}
 
-    def _base_lambdas(
+    def _base_match(
         self,
         home: str,
         away: str,
         neutral: bool,
         elo_home: float | None = None,
         elo_away: float | None = None,
-    ) -> tuple[float, float]:
-        """Model-predicted expected goals, cached per matchup (the expensive part)."""
+    ) -> tuple[float, float, np.ndarray]:
+        """
+        Expected goals AND calibrated ensemble W/D/L for a matchup, cached
+        (the expensive part — one full ensemble forward pass per matchup).
+        """
         cache_key = (home, away, neutral)
-        if cache_key not in self._lambda_cache:
-            from wm.models.goals_gbm import predict_lambdas
-
+        if cache_key not in self._match_cache:
             row = self._make_row(home, away, neutral, elo_home, elo_away)
-            lh_arr, la_arr = predict_lambdas(
-                self.predictor.goals_home, self.predictor.goals_away, row
-            )
-            self._lambda_cache[cache_key] = (
-                float(np.clip(lh_arr[0], 0.05, 8.0)),
-                float(np.clip(la_arr[0], 0.05, 8.0)),
-            )
-        return self._lambda_cache[cache_key]
+            out = self.predictor.predict(row)
+            lh = float(np.clip(out["lambda_home"][0], 0.05, 8.0))
+            la = float(np.clip(out["lambda_away"][0], 0.05, 8.0))
+            wdl = np.array([
+                float(out["p_away_win"][0]),
+                float(out["p_draw"][0]),
+                float(out["p_home_win"][0]),
+            ])
+            self._match_cache[cache_key] = (lh, la, wdl)
+        return self._match_cache[cache_key]
 
     def _predict_fn(
         self,
@@ -80,13 +84,23 @@ class TournamentSimulator:
         noise: float = 0.0,
         rng: np.random.Generator | None = None,
     ):
-        lh, la = self._base_lambdas(home, away, neutral, elo_home, elo_away)
+        lh, la, wdl = self._base_match(home, away, neutral, elo_home, elo_away)
 
         if noise > 0 and rng is not None:
+            # Per-run squad/form uncertainty: perturb expected goals (scoreline
+            # variety) and the outcome target in logit space (widens
+            # championship odds so favorites aren't over-confident).
             lh *= np.exp(rng.normal(0, noise))
             la *= np.exp(rng.normal(0, noise))
+            logit = np.log(np.clip(wdl, 1e-6, 1.0)) + rng.normal(0, 2.0 * noise, size=3)
+            wdl = np.exp(logit - logit.max())
+            wdl = wdl / wdl.sum()
 
         grid = independent_poisson_grid(lh, la, self.cfg.simulation.max_goals_grid)
+        # Reshape the Poisson grid so its W/D/L marginals match the full
+        # ensemble (NN + GBM + Poisson) — this is how the neural net affects
+        # sampled scorelines and therefore championship odds.
+        grid = reshape_grid_to_wdl(grid, wdl)
         return grid, (lh, la)
 
     def _make_row(
