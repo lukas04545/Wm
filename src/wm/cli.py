@@ -22,7 +22,6 @@ def ingest(
     """Download and cache raw data from public sources."""
     from wm import config as cfg_mod
     from wm.ingest import results as res_mod
-    from wm.ingest import player_ratings as pr_mod
     from wm.ingest import fifa_rankings as rank_mod
 
     cfg = cfg_mod.load(config)
@@ -36,16 +35,13 @@ def ingest(
         if src == "results":
             res_mod.fetch(raw_dir, registry, force=force)
             console.print(f"  ✓ international results → {raw_dir}/results.csv")
-        elif src == "players":
+        elif src in ("players", "league"):
             try:
-                dest = pr_mod.fetch(raw_dir, registry, force=force)
-                console.print(f"  ✓ FIFA-24 player attributes → {dest}")
-                console.print(
-                    "    (optional upgrade: Kaggle EA FC dataset with official overalls\n"
-                    f"     → save as {raw_dir}/players/ea_fc_ratings.csv)"
-                )
+                from wm.ingest import league_stats as ls_mod
+                dest = ls_mod.fetch(raw_dir, registry, force=force)
+                console.print(f"  ✓ Real FBref Big-5 club stats (goals, fouls, cards) → {dest.parent}")
             except Exception as e:
-                console.print(f"  ⚠ Player ratings download failed ({e}) — feature is optional")
+                console.print(f"  ⚠ FBref club stats download failed ({e}) — feature is optional")
         elif src == "rankings":
             try:
                 dest = rank_mod.fetch(raw_dir, registry, force=force)
@@ -68,7 +64,7 @@ def build_features(
     from wm import config as cfg_mod
     from wm.data import build as build_mod
     from wm.ingest import results as res_mod
-    from wm.ingest import player_ratings as pr_mod
+    from wm.ingest import league_stats as ls_mod
     from wm.ingest import fifa_rankings as rank_mod
     from wm.features.matrix import build_matrix
 
@@ -89,11 +85,12 @@ def build_features(
     build_mod.save(matches, interim_dir / "matches.parquet")
 
     # Load optional enrichment data
-    squad_df = pr_mod.get_squad_features(raw_dir)
-    if squad_df is not None:
-        console.print(f"  ✓ Squad ratings: {len(squad_df)} teams")
+    league_df = ls_mod.nation_season_features(raw_dir)
+    if league_df is not None:
+        console.print(f"  ✓ Real FBref club stats: {len(league_df)} team-seasons "
+                      f"({league_df.index.get_level_values(0).nunique()} nations)")
     else:
-        console.print("  ⚠ Player ratings not found (optional) - model will use Elo/form only")
+        console.print("  ⚠ FBref club stats not found (optional; need `rdata` + `wm ingest --source league`)")
 
     rankings_df = rank_mod.load(raw_dir)
     if rankings_df is not None:
@@ -102,7 +99,7 @@ def build_features(
         console.print("  ⚠ FIFA rankings not found (optional)")
 
     console.print("[bold blue]Building feature matrix...[/bold blue]")
-    feat_df = build_matrix(matches, cfg, squad_df=squad_df, rankings_df=rankings_df)
+    feat_df = build_matrix(matches, cfg, league_df=league_df, rankings_df=rankings_df)
     console.print(f"  ✓ Feature matrix: {len(feat_df)} rows × {len(feat_df.columns)} features")
 
     from wm.data.io import save_df
@@ -284,8 +281,7 @@ def simulate(
     import pandas as pd
     from wm import config as cfg_mod
     from wm.models import persistence
-    from wm.ingest import player_ratings as pr_mod, fifa_rankings as rank_mod
-    from wm.features.elo_rolling import get_current_ratings
+    from wm.ingest import league_stats as ls_mod, fifa_rankings as rank_mod
     from wm.sim.monte_carlo import TournamentSimulator
     from wm import config as cfg_mod2
 
@@ -299,16 +295,17 @@ def simulate(
     console.print(f"[bold blue]Loading models...[/bold blue]")
     predictor, dc = persistence.load(cfg.path("models"))
 
-    # Compute current team state (Elo, att/def ratings, form) from history
+    # Compute current team state (Elo, att/def, form, real club-form) from history
     from wm.data import build as build_mod
     from wm.features.state import compute_team_state
     interim_dir = cfg.path("data_interim")
     matches = build_mod.load(interim_dir / "matches.parquet")
-    team_state = compute_team_state(matches, cfg)
+    league_df = ls_mod.nation_season_features(cfg.path("data_raw"))
+    team_state = compute_team_state(matches, cfg, league_df=league_df)
     elo_ratings = {t: s["elo"] for t, s in team_state.items()}
-    console.print(f"  ✓ Team state (Elo, att/def, form) for {len(team_state)} teams")
+    console.print(f"  ✓ Team state (Elo, att/def, form, club-form) for {len(team_state)} teams")
 
-    squad_df = pr_mod.get_squad_features(cfg.path("data_raw"))
+    squad_df = None
     rankings_df = rank_mod.load(cfg.path("data_raw"))
 
     # Live mode: real fixtures (venues, host flags) + already-played results
@@ -396,16 +393,17 @@ def predict(
     from wm.features.state import compute_team_state
     from wm.sim.match_sampler import build_fixture_row
     from wm.data import build as build_mod
-    from wm.ingest import player_ratings as pr_mod, fifa_rankings as rank_mod
+    from wm.ingest import league_stats as ls_mod, fifa_rankings as rank_mod
 
     cfg = cfg_mod.load(config)
     predictor, _ = persistence.load(cfg.path("models"))
 
     matches = build_mod.load(cfg.path("data_interim") / "matches.parquet")
-    team_state = compute_team_state(matches, cfg)
+    league_df = ls_mod.nation_season_features(cfg.path("data_raw"))
+    team_state = compute_team_state(matches, cfg, league_df=league_df)
     elo = {t: s["elo"] for t, s in team_state.items()}
 
-    squad_df = pr_mod.get_squad_features(cfg.path("data_raw"))
+    squad_df = None
     rankings_df = rank_mod.load(cfg.path("data_raw"))
 
     row = build_fixture_row(

@@ -64,19 +64,19 @@ def _load_state(cfg: cfg_mod.Config) -> None:
         _state["predictor"] = predictor
         _state["dc"] = dc
 
+        from wm.ingest import league_stats as ls_mod, fifa_rankings as rank_mod
+        raw_dir = cfg.path("data_raw")
+        league_df = ls_mod.nation_season_features(raw_dir)
         try:
             matches = build_mod.load(interim_dir / "matches.parquet")
-            team_state = compute_team_state(matches, cfg)
+            team_state = compute_team_state(matches, cfg, league_df=league_df)
             _state["team_state"] = team_state
             _state["elo_ratings"] = {t: s["elo"] for t, s in team_state.items()}
         except FileNotFoundError:
             _state["team_state"] = None
             _state["elo_ratings"] = {}
 
-        # Optional enrichments
-        from wm.ingest import player_ratings as pr_mod, fifa_rankings as rank_mod
-        raw_dir = cfg.path("data_raw")
-        _state["squad_df"] = pr_mod.get_squad_features(raw_dir)
+        _state["squad_df"] = None
         _state["rankings_df"] = rank_mod.load(raw_dir)
         _state["models_loaded"] = True
     except Exception as e:

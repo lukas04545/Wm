@@ -11,7 +11,7 @@ from wm import config as cfg_mod
 from wm.data import build as build_mod
 from wm.data.teams import canonical, load_confederations, CONFEDERATION_STRENGTH
 from wm.features import elo_rolling, form, context, team_meta
-from wm.ingest import player_ratings as pr_mod, fifa_rankings as rank_mod
+from wm.ingest import fifa_rankings as rank_mod
 
 # 2026 World Cup host nations get a home-advantage signal at neutral venues
 HOST_NATIONS = {"United States", "Mexico", "Canada"}
@@ -29,7 +29,7 @@ CATEGORICAL_FEATURES: list[str] = []
 def build_matrix(
     matches: pd.DataFrame,
     cfg: cfg_mod.Config,
-    squad_df: pd.DataFrame | None = None,
+    league_df: pd.DataFrame | None = None,
     rankings_df: pd.DataFrame | None = None,
     weather_cache: dict | None = None,
 ) -> pd.DataFrame:
@@ -72,8 +72,8 @@ def build_matrix(
     # 5. FIFA rankings (optional)
     rank_feats = _rank_features(matches, rankings_df)
 
-    # 6. Squad strength (optional, joined by year)
-    squad_feats = _squad_features(matches, squad_df)
+    # 6. Real club-form features (FBref Big-5), joined leak-free by season
+    league_feats = _league_features(matches, league_df)
 
     # 7. Socioeconomic & World Cup pedigree background covariates
     meta_feats = _meta_features(matches)
@@ -101,8 +101,8 @@ def build_matrix(
 
     if rank_feats is not None:
         feat = feat.join(rank_feats)
-    if squad_feats is not None:
-        feat = feat.join(squad_feats)
+    if league_feats is not None:
+        feat = feat.join(league_feats)
     feat = feat.join(meta_feats)
 
     # Target
@@ -164,39 +164,54 @@ def _rank_features(matches: pd.DataFrame, rankings_df: pd.DataFrame | None) -> p
     return pd.DataFrame(rows, index=matches.index)
 
 
-def _squad_features(matches: pd.DataFrame, squad_df: pd.DataFrame | None) -> pd.DataFrame | None:
-    if squad_df is None:
+LEAGUE_COLS = ["lg_n_players", "lg_total_90s", "lg_fouls_per90",
+               "lg_fouls_drawn_per90", "lg_cards_per90", "lg_ga_per90",
+               "lg_xgxag_per90", "lg_def_per90", "lg_aerial_pct", "lg_talent_score"]
+
+
+def completed_season(date: pd.Timestamp, season_max: int) -> int:
+    """
+    Latest FULLY-COMPLETED club season as of a match date (leak-free).
+    Club seasons end in May; by July of year Y season Y is complete.
+    Clamped to the available data range.
+    """
+    s = date.year if date.month >= 7 else date.year - 1
+    return int(min(s, season_max))
+
+
+def _league_features(matches: pd.DataFrame, league_df: pd.DataFrame | None) -> pd.DataFrame | None:
+    """
+    Join each match to the real FBref club-form aggregates of both nations
+    for the most recent COMPLETED season — leak-free and time-varying.
+    league_df: MultiIndex [team, season_end_year] from league_stats.
+    """
+    if league_df is None or league_df.empty:
         return None
-    # Squad snapshots describe a specific era; applying them to older matches
-    # would leak future player quality into historical training rows.
-    valid_from = pd.Timestamp(squad_df.attrs.get("valid_from", "1900-01-01"))
-    nan_feat = {f"{k}_{side}": float("nan")
-                for k in ["squad_mean_top25", "squad_mean_top11", "squad_max", "squad_age"]
-                for side in ["home", "away"]}
-    nan_feat["squad_diff_top25"] = float("nan")
+    season_max = int(league_df.attrs.get("season_max", league_df.index.get_level_values(1).max()))
+    season_min = int(league_df.index.get_level_values(1).min())
+    lookup = league_df  # indexed by (team, season)
+
+    def get(team: str, season: int) -> dict | None:
+        key = (team, season)
+        if key in lookup.index:
+            return lookup.loc[key].to_dict()
+        return None
 
     rows = []
     for _, row in matches.iterrows():
-        if row["date"] < valid_from:
-            rows.append(dict(nan_feat))
-            continue
-        sh = squad_df.loc[row["home_team"]] if row["home_team"] in squad_df.index else None
-        sa = squad_df.loc[row["away_team"]] if row["away_team"] in squad_df.index else None
+        season = completed_season(row["date"], season_max)
         feat: dict[str, float] = {}
-        for side, sq in [("home", sh), ("away", sa)]:
-            if sq is not None:
-                feat[f"squad_mean_top25_{side}"] = float(sq.get("squad_mean_top25", float("nan")))
-                feat[f"squad_mean_top11_{side}"] = float(sq.get("squad_mean_top11", float("nan")))
-                feat[f"squad_max_{side}"] = float(sq.get("squad_max", float("nan")))
-                feat[f"squad_age_{side}"] = float(sq.get("squad_mean_age", float("nan")))
-            else:
-                for k in ["squad_mean_top25", "squad_mean_top11", "squad_max", "squad_age"]:
-                    feat[f"{k}_{side}"] = float("nan")
-        h_sq = feat["squad_mean_top25_home"]
-        a_sq = feat["squad_mean_top25_away"]
-        feat["squad_diff_top25"] = (
-            h_sq - a_sq if not (pd.isna(h_sq) or pd.isna(a_sq)) else float("nan")
-        )
+        if season < season_min:
+            sh = sa = None
+        else:
+            sh = get(row["home_team"], season)
+            sa = get(row["away_team"], season)
+        for side, s in [("home", sh), ("away", sa)]:
+            for c in LEAGUE_COLS:
+                feat[f"{c}_{side}"] = float(s[c]) if s is not None and not pd.isna(s.get(c)) else float("nan")
+        for c in ["lg_talent_score", "lg_ga_per90", "lg_xgxag_per90", "lg_fouls_per90", "lg_def_per90"]:
+            h, a = feat[f"{c}_home"], feat[f"{c}_away"]
+            feat[f"{c}_diff"] = (h - a) if not (pd.isna(h) or pd.isna(a)) else float("nan")
         rows.append(feat)
     return pd.DataFrame(rows, index=matches.index)
 

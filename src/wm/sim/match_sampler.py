@@ -168,24 +168,17 @@ def build_fixture_row(
         row["att_diff_before"] = np.nan
         row["def_diff_before"] = np.nan
 
-    # Squad features
-    if squad_df is not None:
-        for side, team in [("home", home), ("away", away)]:
-            sq = squad_df.loc[team] if team in squad_df.index else None
-            if sq is not None:
-                row[f"squad_mean_top25_{side}"] = float(sq.get("squad_mean_top25", np.nan))
-                row[f"squad_mean_top11_{side}"] = float(sq.get("squad_mean_top11", np.nan))
-                row[f"squad_max_{side}"] = float(sq.get("squad_max", np.nan))
-                row[f"squad_age_{side}"] = float(sq.get("squad_mean_age", np.nan))
-            else:
-                row[f"squad_mean_top25_{side}"] = np.nan
-                row[f"squad_mean_top11_{side}"] = np.nan
-                row[f"squad_max_{side}"] = np.nan
-                row[f"squad_age_{side}"] = np.nan
-        if f"squad_mean_top25_home" in row and f"squad_mean_top25_away" in row:
-            h_sq = row["squad_mean_top25_home"]
-            a_sq = row["squad_mean_top25_away"]
-            row["squad_diff_top25"] = h_sq - a_sq if not (pd.isna(h_sq) or pd.isna(a_sq)) else np.nan
+    # Real club-form (FBref) features from each team's latest season
+    from wm.features.matrix import LEAGUE_COLS
+    lg_h = state_h.get("league") or {}
+    lg_a = state_a.get("league") or {}
+    for side, lg in [("home", lg_h), ("away", lg_a)]:
+        for c in LEAGUE_COLS:
+            v = lg.get(c, np.nan) if lg else np.nan
+            row[f"{c}_{side}"] = float(v) if v is not None and not pd.isna(v) else np.nan
+    for c in ["lg_talent_score", "lg_ga_per90", "lg_xgxag_per90", "lg_fouls_per90", "lg_def_per90"]:
+        h, a = row[f"{c}_home"], row[f"{c}_away"]
+        row[f"{c}_diff"] = (h - a) if not (pd.isna(h) or pd.isna(a)) else np.nan
 
     # FIFA rankings
     if rankings_df is not None:

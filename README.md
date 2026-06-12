@@ -2,10 +2,11 @@
 
 An AI that predicts the FIFA World Cup 2026 (USA/Canada/Mexico, 48 teams).
 It trains on ~48,000 international matches since 1872 and combines rolling Elo
-ratings, recent form, player squad strength, FIFA rankings, travel distance,
-altitude, and venue climate into a calibrated LightGBM ensemble, then runs
-Monte Carlo simulations of the entire tournament — exact 2026 format with
-12 groups, best-thirds qualification, and the Round-of-32 bracket.
+ratings, recent form, real club-football performance (goals, xG, fouls, cards
+from the top-5 European leagues), FIFA rankings, travel distance, altitude,
+and venue climate into a calibrated LightGBM + neural-net ensemble, then runs
+Monte Carlo simulations of the entire tournament — official 2026 bracket with
+12 groups, best-thirds qualification, and the real Round-of-32 venues.
 
 ## Quick start (one command)
 
@@ -42,7 +43,7 @@ Options: `RUNS=50000 bash run.sh` (more Monte Carlo runs), `PORT=8080 bash run.s
 
 ```bash
 pip install -e .
-wm ingest --source all       # match data + player ratings + FIFA rankings (free, no auth)
+wm ingest --source all       # match results + FBref club stats + FIFA rankings (free, no auth)
 wm build-features            # leak-free feature matrix
 wm train                     # LightGBM W/D/L + Poisson goals + calibration
 wm evaluate                  # log-loss / Brier / RPS vs Elo baseline
@@ -52,19 +53,21 @@ wm serve                     # interactive browser UI
 wm predict Brazil Germany    # single match prediction
 ```
 
-All data sources download automatically — match results, FIFA-24 player
-attributes, and historical FIFA rankings come from free GitHub mirrors with
-no authentication. Optionally, an official EA FC ratings export from
-[Kaggle](https://www.kaggle.com/datasets/stefanoleone992/ea-sports-fc-24-complete-player-dataset)
-saved to `data/raw/players/ea_fc_ratings.csv` takes precedence over the
-auto-downloaded attribute-based ratings.
+All data sources download automatically with no authentication — match
+results, **real FBref top-5-league club stats** (goals, assists, xG, minutes,
+plus discipline: fouls committed/drawn, cards, tackles, interceptions,
+aerials), and historical FIFA rankings, all from free GitHub mirrors. The
+club stats are aggregated to each nation per season and joined to
+internationals leak-free (most recent completed season only). No EA Sports /
+FIFA video-game ratings are used — every player number is real on-pitch
+performance.
 
 ## How it works
 
 | Layer | What it does |
 |---|---|
-| **Data** | International results 1872–present (GitHub), EA FC squad ratings, FIFA rankings, Open-Meteo climate normals for all 18 venues |
-| **Features** | Rolling Elo + attack/defence goal ratings, opponent-adjusted form (performance vs Elo expectation, schedule strength), EWMA goals, form windows (5/10/15), rest days, head-to-head, travel km, altitude, heat/humidity, confederation strength, squad ratings, FIFA rank, GDP per capita, population, World Cup pedigree, host-nation status (115 features) |
+| **Data** | International results 1872–present (GitHub), real FBref top-5-league club stats (goals, assists, xG, fouls, cards, tackles, aerials, league strength), FIFA rankings, Open-Meteo climate normals for all 18 venues |
+| **Features** | Rolling Elo + attack/defence goal ratings, opponent-adjusted form (performance vs Elo expectation, schedule strength), EWMA goals, form windows (5/10/15), rest days, head-to-head, real club-form per nation (goals/xG/fouls/cards/tackles per 90, league-strength talent score), travel km, altitude, heat/humidity, confederation strength, FIFA rank, GDP per capita, population, World Cup pedigree, host-nation status (131 features) |
 | **Models** | Three-branch ensemble: LightGBM W/D/L classifier + a bagged backprop neural net (NumPy MLP) + LightGBM Poisson goal regressors with Dixon-Coles low-score correction. Stacked meta-learner blend + vector-scaling calibration, both selected on validation |
 | **Split** | 80% of time-sorted matches → training, last 20% → validation (no temporal leakage) |
 | **Simulation** | Official 2026 bracket: 12 groups → top 2 + 8 best thirds → R32 (FIFA matches 73–88 with real venues) → … → Final at MetLife. Third-place slots filled by constraint-respecting matching; scoreline grids reshaped to the calibrated ensemble W/D/L, with extra time, penalties, and per-run squad-strength noise |
