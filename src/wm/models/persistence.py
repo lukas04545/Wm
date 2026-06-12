@@ -24,10 +24,17 @@ def save(
     predictor.goals_away.save_model(str(model_dir / "goals_away.lgb"))
     with open(model_dir / "calibrator.pkl", "wb") as f:
         pickle.dump(predictor.calibrator, f)
+    if predictor.nn is not None:
+        with open(model_dir / "neural_net.pkl", "wb") as f:
+            pickle.dump(predictor.nn, f)
     with open(model_dir / "meta.json", "w") as f:
         json.dump(
             {
                 "blend_weight": predictor.blend_weight,
+                "blend_weights": (
+                    predictor.blend_weights.tolist()
+                    if predictor.blend_weights is not None else None
+                ),
                 "max_goals": predictor.max_goals,
                 **(meta or {}),
             },
@@ -48,11 +55,19 @@ def load(model_dir: Path) -> tuple[MatchPredictor, DixonColes | None]:
     with open(model_dir / "meta.json") as f:
         meta = json.load(f)
 
+    nn = None
+    nn_path = model_dir / "neural_net.pkl"
+    if nn_path.exists():
+        with open(nn_path, "rb") as f:
+            nn = pickle.load(f)
+
     predictor = MatchPredictor(
         clf=clf,
         goals_home_model=gh,
         goals_away_model=ga,
         calibrator=calibrator,
+        nn=nn,
+        blend_weights=meta.get("blend_weights"),
         blend_weight=meta.get("blend_weight", 0.5),
         max_goals=meta.get("max_goals", 10),
     )

@@ -139,12 +139,43 @@ def train(
     m_home, m_away = goals_gbm.train(train_df, val_df, params=cfg.model.goals)
     console.print(f"  ✓ Home goals: {m_home.best_iteration} rounds | Away: {m_away.best_iteration} rounds")
 
-    console.print("[bold blue]Calibrating probabilities...[/bold blue]")
-    from wm.models.wdl_classifier import predict_proba
+    console.print("[bold blue]Training neural network (backpropagation)...[/bold blue]")
+    from wm.models.neural_net import MLPClassifier
+    from wm.models.wdl_classifier import get_feature_cols
     from wm.features.matrix import TARGET_WDL
-    val_probs = predict_proba(clf, val_df)
+
+    feat_cols = get_feature_cols(train_df)
+    y_train = train_df[TARGET_WDL].astype(int).values
+    y_val = val_df[TARGET_WDL].astype(int).values
+    nn = MLPClassifier(hidden=(128, 64), dropout=0.2, lr=1e-3, l2=1e-4,
+                       max_epochs=200, patience=12, seed=cfg.simulation.seed)
+    nn.fit(
+        train_df[feat_cols], y_train,
+        val_df[feat_cols], y_val,
+        sample_weight=train_df.get("sample_weight"),
+    )
+    console.print(
+        f"  ✓ {nn.n_epochs_run_} epochs | best val log-loss: {nn.best_val_loss_:.4f}"
+    )
+
+    console.print("[bold blue]Optimizing blend weights on validation...[/bold blue]")
+    probe = ensemble.MatchPredictor(
+        clf=clf, goals_home_model=m_home, goals_away_model=m_away,
+        calibrator=calibrate.WDLCalibrator(), nn=nn,
+        max_goals=cfg.simulation.max_goals_grid,
+    )
+    branches, _, _, _ = probe.branch_probs(val_df)
+    blend_w = ensemble.fit_blend_weights(branches, y_val)
+    console.print(
+        f"  ✓ weights: GBM {blend_w[0]:.3f} | NN {blend_w[1]:.3f} | Poisson {blend_w[2]:.3f}"
+    )
+
+    console.print("[bold blue]Calibrating blended probabilities...[/bold blue]")
+    import numpy as np
+    blended_val = sum(w * P for w, P in zip(blend_w, branches))
+    blended_val = blended_val / blended_val.sum(axis=1, keepdims=True)
     calibrator = calibrate.WDLCalibrator()
-    calibrator.fit(val_probs, val_df[TARGET_WDL].astype(int).values)
+    calibrator.fit(blended_val, y_val)
     console.print(f"  ✓ Temperature: {calibrator.temperature:.4f}")
 
     dc = None
@@ -164,6 +195,8 @@ def train(
         goals_home_model=m_home,
         goals_away_model=m_away,
         calibrator=calibrator,
+        nn=nn,
+        blend_weights=blend_w,
         blend_weight=cfg.model.blend_weight,
         max_goals=cfg.simulation.max_goals_grid,
     )
