@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FIFA World Cup 2026 Predictor</title>
+<link rel="stylesheet" href="/static/style.css">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+</head>
+<body>
+<header>
+  <div class="header-inner">
+    <div class="logo">⚽ WC 2026 <span>Predictor</span></div>
+    <nav>
+      <button class="nav-btn active" data-tab="odds">🏆 Odds</button>
+      <button class="nav-btn" data-tab="groups">🏟️ Groups</button>
+      <button class="nav-btn" data-tab="predict">⚽ Predict</button>
+      <button class="nav-btn" data-tab="elo">📊 Elo</button>
+      <button class="nav-btn" data-tab="status">⚙️ Setup</button>
+    </nav>
+  </div>
+</header>
+
+<main>
+  <!-- ODDS TAB -->
+  <section id="tab-odds" class="tab active">
+    <div class="section-header">
+      <h2>Championship Odds</h2>
+      <p class="sub">Based on Monte Carlo simulation of the full 2026 tournament</p>
+    </div>
+    <div id="odds-loading" class="loading-box">
+      <div class="spinner"></div>
+      <p>Loading simulation results…</p>
+    </div>
+    <div id="odds-unavailable" class="info-box hidden">
+      <p>🔧 No simulation results yet. Go to <strong>⚙️ Setup</strong> to run the pipeline, or click below to run a quick simulation.</p>
+      <button class="btn-primary" onclick="quickSimulate()">Run Quick Simulation (10k runs)</button>
+      <div id="sim-status" class="sim-status hidden"></div>
+    </div>
+    <div id="odds-content" class="hidden">
+      <div class="chart-container">
+        <canvas id="oddsChart"></canvas>
+      </div>
+      <div class="table-wrapper">
+        <table id="odds-table">
+          <thead>
+            <tr>
+              <th>#</th><th>Team</th><th>Group</th>
+              <th class="sortable active-sort" data-col="champion">Champion %</th>
+              <th class="sortable" data-col="final">Final %</th>
+              <th class="sortable" data-col="semifinal">SF %</th>
+              <th class="sortable" data-col="quarterfinal">QF %</th>
+              <th class="sortable" data-col="group_qualified">Qualified %</th>
+              <th>Avg Pts</th>
+            </tr>
+          </thead>
+          <tbody id="odds-tbody"></tbody>
+        </table>
+      </div>
+      <div id="finals-panel" class="panel">
+        <h3>Most Likely Finals</h3>
+        <ul id="finals-list"></ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- GROUPS TAB -->
+  <section id="tab-groups" class="tab hidden">
+    <div class="section-header">
+      <h2>Group Stage</h2>
+      <p class="sub">All 12 groups — FIFA World Cup 2026</p>
+    </div>
+    <div id="groups-loading" class="loading-box">
+      <div class="spinner"></div>
+    </div>
+    <div id="groups-grid" class="groups-grid hidden"></div>
+  </section>
+
+  <!-- PREDICT TAB -->
+  <section id="tab-predict" class="tab hidden">
+    <div class="section-header">
+      <h2>Match Predictor</h2>
+      <p class="sub">Select two teams to predict match outcome probabilities</p>
+    </div>
+    <div id="predict-unavailable" class="info-box hidden">
+      <p>🔧 Models not loaded. Run <code>wm train</code> first (see ⚙️ Setup tab).</p>
+    </div>
+    <div id="predict-form" class="predict-form">
+      <div class="team-selectors">
+        <div class="team-sel">
+          <label>Team A (Home)</label>
+          <select id="sel-home" class="team-select"></select>
+        </div>
+        <div class="vs-badge">VS</div>
+        <div class="team-sel">
+          <label>Team B (Away)</label>
+          <select id="sel-away" class="team-select"></select>
+        </div>
+      </div>
+      <div class="predict-options">
+        <label class="venue-label">
+          Venue:
+          <select id="sel-venue">
+            <option>MetLife Stadium</option>
+            <option>AT&T Stadium</option>
+            <option>SoFi Stadium</option>
+            <option>Rose Bowl</option>
+            <option>Estadio Azteca</option>
+            <option>Estadio BBVA</option>
+            <option>Estadio Akron</option>
+            <option>BC Place</option>
+            <option>BMO Field</option>
+            <option>NRG Stadium</option>
+            <option>Hard Rock Stadium</option>
+            <option>Lumen Field</option>
+            <option>Gillette Stadium</option>
+            <option>Lincoln Financial Field</option>
+            <option>Arrowhead Stadium</option>
+            <option>Allegiant Stadium</option>
+            <option>Levi's Stadium</option>
+            <option>State Farm Stadium</option>
+          </select>
+        </label>
+      </div>
+      <button class="btn-primary predict-btn" onclick="runPredict()">Predict Match</button>
+    </div>
+    <div id="predict-loading" class="loading-box hidden">
+      <div class="spinner"></div>
+    </div>
+    <div id="predict-result" class="predict-result hidden"></div>
+  </section>
+
+  <!-- ELO TAB -->
+  <section id="tab-elo" class="tab hidden">
+    <div class="section-header">
+      <h2>Elo Rankings</h2>
+      <p class="sub">Current Elo ratings computed from ~50k international matches since 1990</p>
+    </div>
+    <div id="elo-loading" class="loading-box">
+      <div class="spinner"></div>
+    </div>
+    <div id="elo-content" class="hidden">
+      <div class="chart-container" style="height:400px">
+        <canvas id="eloChart"></canvas>
+      </div>
+      <div class="table-wrapper">
+        <table id="elo-table">
+          <thead><tr><th>#</th><th>Team</th><th>Elo Rating</th><th>Strength Bar</th></tr></thead>
+          <tbody id="elo-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- STATUS TAB -->
+  <section id="tab-status" class="tab hidden">
+    <div class="section-header">
+      <h2>Setup & Pipeline</h2>
+      <p class="sub">System status and pipeline commands</p>
+    </div>
+    <div id="status-content">
+      <div class="status-cards" id="status-cards"></div>
+      <div class="pipeline-steps">
+        <h3>Run the full pipeline</h3>
+        <div class="step-list">
+          <div class="step">
+            <div class="step-num">1</div>
+            <div class="step-body">
+              <strong>Install & Ingest</strong>
+              <code>pip install -e .<br>wm ingest --source results</code>
+              <p>Downloads ~48k international matches (1872–present) from GitHub. Free, no auth needed.</p>
+            </div>
+          </div>
+          <div class="step">
+            <div class="step-num">2</div>
+            <div class="step-body">
+              <strong>Optional: Player Ratings</strong>
+              <code>wm ingest --source players</code>
+              <p>Download EA FC ratings from <a href="https://www.kaggle.com/datasets/stefanoleone992/ea-sports-fc-24-complete-player-dataset" target="_blank">Kaggle</a> and save to <code>data/raw/players/ea_fc_ratings.csv</code></p>
+            </div>
+          </div>
+          <div class="step">
+            <div class="step-num">3</div>
+            <div class="step-body">
+              <strong>Build Features</strong>
+              <code>wm build-features</code>
+              <p>Computes Elo, form windows, travel/altitude/weather context — leak-free.</p>
+            </div>
+          </div>
+          <div class="step">
+            <div class="step-num">4</div>
+            <div class="step-body">
+              <strong>Train Models</strong>
+              <code>wm train</code>
+              <p>LightGBM W/D/L classifier + Poisson goal regressors + calibration.</p>
+            </div>
+          </div>
+          <div class="step">
+            <div class="step-num">5</div>
+            <div class="step-body">
+              <strong>Simulate Tournament</strong>
+              <code>wm simulate --runs 100000</code>
+              <p>Run 100k Monte Carlo tournaments. Or click the button in the 🏆 Odds tab for a quick 10k run.</p>
+            </div>
+          </div>
+          <div class="step">
+            <div class="step-num">6</div>
+            <div class="step-body">
+              <strong>Serve this UI</strong>
+              <code>wm serve --port 8000</code>
+              <p>Open <a href="http://localhost:8000">localhost:8000</a> in your browser.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <span>FIFA 2026 Prediction System — powered by LightGBM + Monte Carlo simulation</span>
+</footer>
+
+<script src="/static/app.js"></script>
+</body>
+</html>

@@ -348,5 +348,26 @@ def predict(
     console.print(table)
 
 
+@app.command()
+def serve(
+    host: str = typer.Option("0.0.0.0", help="Bind host"),
+    port: int = typer.Option(8000, help="Port number"),
+    reload: bool = typer.Option(False, help="Auto-reload on code changes (dev mode)"),
+    config: Path = typer.Option("config/default.yaml", help="Config file"),
+):
+    """Start the web UI server at http://localhost:PORT"""
+    import uvicorn
+    from wm.web.app import create_app
+
+    console.print(f"[bold green]⚽ FIFA 2026 Predictor[/bold green]")
+    console.print(f"   Open [bold blue]http://localhost:{port}[/bold blue] in your browser\n")
+
+    if reload:
+        uvicorn.run("wm.web.app:create_app", host=host, port=port, reload=True, factory=True)
+    else:
+        web_app = create_app(config)
+        uvicorn.run(web_app, host=host, port=port)
+
+
 if __name__ == "__main__":
     app()
