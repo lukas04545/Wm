@@ -119,7 +119,8 @@ def train(
     import pandas as pd
     from wm import config as cfg_mod
     from wm.eval.splits import split
-    from wm.models import wdl_classifier, goals_gbm, calibrate, ensemble, persistence
+    from wm.models import persistence
+    from wm.models.train import train_ensemble
 
     cfg = cfg_mod.load(config)
     processed_dir = cfg.path("data_processed")
@@ -131,56 +132,15 @@ def train(
     train_df, val_df, test_df = split(feat_df, cfg.splits)
     console.print(f"  Train: {len(train_df):,}  Val: {len(val_df):,}")
 
-    console.print("[bold blue]Training W/D/L classifier...[/bold blue]")
-    clf = wdl_classifier.train(train_df, val_df, params=cfg.model.wdl)
-    console.print(f"  ✓ Best iteration: {clf.best_iteration}")
-
-    console.print("[bold blue]Training goals regressors (Poisson)...[/bold blue]")
-    m_home, m_away = goals_gbm.train(train_df, val_df, params=cfg.model.goals)
-    console.print(f"  ✓ Home goals: {m_home.best_iteration} rounds | Away: {m_away.best_iteration} rounds")
-
-    console.print("[bold blue]Training neural network (backpropagation, bagged)...[/bold blue]")
-    from wm.models.neural_net import BaggedMLPClassifier
-    from wm.models.wdl_classifier import get_feature_cols
-    from wm.features.matrix import TARGET_WDL
-
-    feat_cols = get_feature_cols(train_df)
-    y_train = train_df[TARGET_WDL].astype(int).values
-    y_val = val_df[TARGET_WDL].astype(int).values
-    nn_cfg = dict(cfg.model.nn) if cfg.model.nn else {}
-    n_models = nn_cfg.pop("n_models", 3)
-    nn_cfg.setdefault("hidden", (192, 96, 48))
-    nn_cfg["hidden"] = tuple(nn_cfg["hidden"])
-    nn_cfg.setdefault("lr", nn_cfg.pop("learning_rate", 8e-4))
-    nn = BaggedMLPClassifier(n_models=n_models, base_seed=cfg.simulation.seed, **nn_cfg)
-    nn.fit(
-        train_df[feat_cols], y_train,
-        val_df[feat_cols], y_val,
-        sample_weight=train_df.get("sample_weight"),
+    predictor, info = train_ensemble(
+        train_df, val_df, cfg,
+        progress=lambda m: console.print(f"[bold blue]{m}...[/bold blue]"),
     )
+    bw = info["blend_weights"]
     console.print(
-        f"  ✓ {n_models} nets × ~{nn.n_epochs_run_} epochs | mean val log-loss: {nn.best_val_loss_:.4f}"
+        f"  ✓ blend weights: GBM {bw[0]:.3f} | NN {bw[1]:.3f} | Poisson {bw[2]:.3f} "
+        f"| NN val log-loss {info['nn_val_loss']:.4f}"
     )
-
-    console.print("[bold blue]Optimizing blend weights on validation...[/bold blue]")
-    probe = ensemble.MatchPredictor(
-        clf=clf, goals_home_model=m_home, goals_away_model=m_away,
-        calibrator=calibrate.WDLCalibrator(), nn=nn,
-        max_goals=cfg.simulation.max_goals_grid,
-    )
-    branches, _, _, _ = probe.branch_probs(val_df)
-    blend_w = ensemble.fit_blend_weights(branches, y_val)
-    console.print(
-        f"  ✓ weights: GBM {blend_w[0]:.3f} | NN {blend_w[1]:.3f} | Poisson {blend_w[2]:.3f}"
-    )
-
-    console.print("[bold blue]Calibrating blended probabilities...[/bold blue]")
-    import numpy as np
-    blended_val = sum(w * P for w, P in zip(blend_w, branches))
-    blended_val = blended_val / blended_val.sum(axis=1, keepdims=True)
-    calibrator = calibrate.WDLCalibrator()
-    calibrator.fit(blended_val, y_val)
-    console.print(f"  ✓ Temperature: {calibrator.temperature:.4f}")
 
     dc = None
     if model == "all+dc":
@@ -193,17 +153,6 @@ def train(
         dc = DixonColes(xi=0.0018)
         dc.fit(matches[matches["date"] >= pd.Timestamp("2018-01-01")])
         console.print("  ✓ Dixon-Coles fitted")
-
-    predictor = ensemble.MatchPredictor(
-        clf=clf,
-        goals_home_model=m_home,
-        goals_away_model=m_away,
-        calibrator=calibrator,
-        nn=nn,
-        blend_weights=blend_w,
-        blend_weight=cfg.model.blend_weight,
-        max_goals=cfg.simulation.max_goals_grid,
-    )
 
     meta = {
         "train_rows": len(train_df),
@@ -246,6 +195,77 @@ def evaluate(
         draw_baseline = bl.DrawRateBaseline().fit(train_df)
         run_backtest(eval_df, elo_baseline.predict_proba(eval_df), cfg.path("reports"), name="elo_baseline")
         run_backtest(eval_df, draw_baseline.predict_proba(eval_df), cfg.path("reports"), name="draw_baseline")
+
+
+@app.command()
+def backtest(
+    folds: int = typer.Option(4, help="Number of rolling-origin time folds"),
+    config: Path = typer.Option("config/default.yaml", help="Config file"),
+):
+    """
+    Rolling-origin backtest: retrain on an expanding window and evaluate on the
+    next time block, repeated across folds. Confirms accuracy generalizes
+    rather than being tuned to one validation split.
+    """
+    import numpy as np
+    import pandas as pd
+    from wm import config as cfg_mod
+    from wm.data.io import load_df
+    from wm.models.train import train_ensemble
+    from wm.models import baselines as bl
+    from wm.eval.metrics import evaluate as eval_metrics
+    from wm.features.matrix import TARGET_WDL
+
+    cfg = cfg_mod.load(config)
+    feat_df = load_df(cfg.path("data_processed") / "features.parquet").sort_values("date").reset_index(drop=True)
+    n = len(feat_df)
+
+    # Expanding-window folds over the most recent half of the data
+    start = n // 2
+    bounds = np.linspace(start, n, folds + 1).astype(int)
+
+    rows = []
+    for k in range(folds):
+        tr_end, te_end = bounds[k], bounds[k + 1]
+        train_df = feat_df.iloc[:tr_end]
+        test_df = feat_df.iloc[tr_end:te_end]
+        # inner validation = last 15% of the training window (for blend/calibration)
+        cut = int(len(train_df) * 0.85)
+        inner_tr, inner_val = train_df.iloc[:cut], train_df.iloc[cut:]
+
+        console.print(f"[bold blue]Fold {k+1}/{folds}[/bold blue] "
+                      f"train≤{train_df['date'].iloc[-1].date()} "
+                      f"test n={len(test_df)}")
+        predictor, _ = train_ensemble(inner_tr, inner_val, cfg)
+
+        out = predictor.predict(test_df)
+        probs = np.column_stack([out["p_away_win"], out["p_draw"], out["p_home_win"]])
+        y = test_df[TARGET_WDL].astype(int).values
+        m = eval_metrics(y, probs)
+
+        elo = bl.EloBaseline().fit(inner_tr)
+        m_elo = eval_metrics(y, elo.predict_proba(test_df))
+
+        rows.append({"fold": k + 1, "n": len(test_df),
+                     "ensemble_ll": m["log_loss"], "elo_ll": m_elo["log_loss"],
+                     "ensemble_rps": m["rps"]})
+        console.print(f"  ensemble log-loss {m['log_loss']:.4f}  |  Elo {m_elo['log_loss']:.4f}")
+
+    res = pd.DataFrame(rows)
+    table = Table(title=f"Rolling backtest ({folds} folds)", show_header=True)
+    for col in ["Fold", "n", "Ensemble LL", "Elo LL", "Ensemble RPS"]:
+        table.add_column(col, justify="right")
+    for _, r in res.iterrows():
+        table.add_row(str(int(r["fold"])), str(int(r["n"])),
+                      f"{r['ensemble_ll']:.4f}", f"{r['elo_ll']:.4f}", f"{r['ensemble_rps']:.4f}")
+    console.print(table)
+
+    w = res["n"] / res["n"].sum()
+    ens = float((res["ensemble_ll"] * w).sum())
+    elo = float((res["elo_ll"] * w).sum())
+    console.print(f"[bold green]Weighted mean log-loss[/bold green]  "
+                  f"ensemble {ens:.4f}  vs  Elo {elo:.4f}  "
+                  f"(Δ {elo - ens:+.4f})")
 
 
 @app.command()
