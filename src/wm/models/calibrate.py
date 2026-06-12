@@ -48,3 +48,43 @@ class WDLCalibrator:
 
     def predict(self, probs: np.ndarray) -> np.ndarray:
         return temperature_scale(probs, self.temperature)
+
+
+class VectorScalingCalibrator:
+    """
+    Vector scaling: per-class weight + bias on log-probabilities
+    (6 parameters vs temperature scaling's 1). Strictly more expressive;
+    falls back to identity-like behavior if data doesn't support it.
+    Particularly useful for the draw class, which simple temperature
+    scaling cannot adjust independently.
+    """
+
+    def __init__(self):
+        self.w: np.ndarray = np.ones(3)
+        self.b: np.ndarray = np.zeros(3)
+
+    @staticmethod
+    def _apply(probs: np.ndarray, w: np.ndarray, b: np.ndarray) -> np.ndarray:
+        logits = np.log(np.clip(probs, 1e-7, 1.0)) * w + b
+        logits -= logits.max(axis=1, keepdims=True)
+        e = np.exp(logits)
+        return e / e.sum(axis=1, keepdims=True)
+
+    def fit(self, probs: np.ndarray, labels: np.ndarray) -> "VectorScalingCalibrator":
+        from scipy.optimize import minimize
+
+        labels = np.asarray(labels, dtype=int)
+        idx = np.arange(len(labels))
+
+        def nll(theta: np.ndarray) -> float:
+            cal = self._apply(probs, theta[:3], theta[3:])
+            return -float(np.mean(np.log(cal[idx, labels] + 1e-12)))
+
+        res = minimize(nll, np.concatenate([np.ones(3), np.zeros(3)]),
+                       method="Nelder-Mead",
+                       options={"xatol": 1e-4, "fatol": 1e-7, "maxiter": 3000})
+        self.w, self.b = res.x[:3], res.x[3:]
+        return self
+
+    def predict(self, probs: np.ndarray) -> np.ndarray:
+        return self._apply(probs, self.w, self.b)

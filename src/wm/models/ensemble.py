@@ -24,14 +24,55 @@ def scoreline_grid_to_wdl(grid: np.ndarray) -> np.ndarray:
     return np.array([pa / total, pd_ / total, ph / total])
 
 
-def independent_poisson_grid(lh: float, la: float, max_g: int = 10) -> np.ndarray:
-    """P(home=i, away=j) for independent Poisson(lh) × Poisson(la)."""
+def independent_poisson_grid(
+    lh: float, la: float, max_g: int = 10, rho: float = 0.0
+) -> np.ndarray:
+    """
+    P(home=i, away=j) for independent Poisson(lh) × Poisson(la), optionally
+    with the Dixon-Coles low-score dependence correction τ applied to the
+    {0-0, 1-0, 0-1, 1-1} cells (negative rho inflates draws — the empirically
+    observed pattern that independent Poissons miss).
+    """
     grid = np.outer(
         poisson.pmf(range(max_g + 1), lh),
         poisson.pmf(range(max_g + 1), la),
     )
+    if rho != 0.0:
+        from wm.models.goals_poisson import _tau
+        for i in (0, 1):
+            for j in (0, 1):
+                grid[i, j] *= max(_tau(i, j, lh, la, rho), 1e-10)
     grid /= grid.sum()
     return grid
+
+
+def fit_dc_rho(
+    lambdas_home: np.ndarray,
+    lambdas_away: np.ndarray,
+    goals_home: np.ndarray,
+    goals_away: np.ndarray,
+) -> float:
+    """
+    Fit the Dixon-Coles low-score correction rho on validation scorelines by
+    maximizing the corrected Poisson likelihood (1-D bounded search).
+    """
+    from scipy.optimize import minimize_scalar
+    from wm.models.goals_poisson import _tau
+
+    gh = goals_home.astype(int)
+    ga = goals_away.astype(int)
+    base = poisson.pmf(gh, lambdas_home) * poisson.pmf(ga, lambdas_away)
+    low = (gh <= 1) & (ga <= 1)
+
+    def nll(rho: float) -> float:
+        tau = np.ones(len(gh))
+        idx = np.where(low)[0]
+        for i in idx:
+            tau[i] = max(_tau(int(gh[i]), int(ga[i]), lambdas_home[i], lambdas_away[i], rho), 1e-10)
+        return -float(np.mean(np.log(base * tau + 1e-12)))
+
+    res = minimize_scalar(nll, bounds=(-0.3, 0.3), method="bounded")
+    return float(res.x)
 
 
 def reshape_grid_to_wdl(grid: np.ndarray, target_wdl: np.ndarray) -> np.ndarray:
@@ -93,6 +134,41 @@ def fit_blend_weights(prob_stack: list[np.ndarray], labels: np.ndarray) -> np.nd
     return _softmax(res.x)
 
 
+STACKER_CONTEXT_COLS = ["elo_diff_before", "tournament_tier", "is_neutral"]
+
+
+class StackedBlender:
+    """
+    Meta-learner over branch probabilities: multinomial logistic regression on
+    the log-probs of every branch plus match context (Elo gap, tournament
+    tier, neutrality). Unlike a fixed convex blend, it can route between
+    branches per match — e.g. trust the Poisson branch more in lopsided
+    matches and the NN more in close ones.
+    """
+
+    def __init__(self, C: float = 1.0):
+        from sklearn.linear_model import LogisticRegression
+        self.lr = LogisticRegression(max_iter=2000, C=C)
+
+    @staticmethod
+    def _features(branches: list[np.ndarray], context_df: pd.DataFrame) -> np.ndarray:
+        cols = [np.log(np.clip(P, 1e-9, 1.0)) for P in branches]
+        ctx = context_df.reindex(columns=STACKER_CONTEXT_COLS)
+        ctx_arr = ctx.to_numpy(dtype=float)
+        ctx_arr = np.where(np.isnan(ctx_arr), 0.0, ctx_arr)
+        ctx_arr[:, 0] = ctx_arr[:, 0] / 400.0   # elo_diff scale
+        ctx_arr[:, 1] = ctx_arr[:, 1] / 5.0     # tier scale
+        return np.column_stack(cols + [ctx_arr])
+
+    def fit(self, branches: list[np.ndarray], context_df: pd.DataFrame, labels: np.ndarray) -> "StackedBlender":
+        X = self._features(branches, context_df)
+        self.lr.fit(X, np.asarray(labels, dtype=int))
+        return self
+
+    def predict_proba(self, branches: list[np.ndarray], context_df: pd.DataFrame) -> np.ndarray:
+        return self.lr.predict_proba(self._features(branches, context_df))
+
+
 class MatchPredictor:
     """
     Blended match predictor combining:
@@ -113,6 +189,8 @@ class MatchPredictor:
         blend_weights: np.ndarray | None = None,
         blend_weight: float = 0.5,  # legacy 2-branch fallback
         max_goals: int = 10,
+        dc_rho: float = 0.0,
+        stacker: "StackedBlender | None" = None,
     ):
         self.clf = clf
         self.goals_home = goals_home_model
@@ -124,6 +202,8 @@ class MatchPredictor:
         )
         self.blend_weight = blend_weight
         self.max_goals = max_goals
+        self.dc_rho = dc_rho
+        self.stacker = stacker
 
     def branch_probs(self, df: pd.DataFrame) -> tuple[list[np.ndarray], np.ndarray, np.ndarray, np.ndarray]:
         """Return ([clf, (nn), poisson] prob matrices, lambdas home/away, grids)."""
@@ -136,7 +216,7 @@ class MatchPredictor:
         lh = np.clip(lh, 0.05, 8.0)
         la = np.clip(la, 0.05, 8.0)
         grids = np.array([
-            independent_poisson_grid(lh[i], la[i], self.max_goals)
+            independent_poisson_grid(lh[i], la[i], self.max_goals, rho=self.dc_rho)
             for i in range(len(df))
         ])
         poisson_wdl = np.array([scoreline_grid_to_wdl(grids[i]) for i in range(len(df))])
@@ -156,7 +236,9 @@ class MatchPredictor:
         """
         branches, lh, la, grids = self.branch_probs(df)
 
-        if self.blend_weights is not None and len(self.blend_weights) == len(branches):
+        if self.stacker is not None:
+            blended = self.stacker.predict_proba(branches, df)
+        elif self.blend_weights is not None and len(self.blend_weights) == len(branches):
             blended = sum(w * P for w, P in zip(self.blend_weights, branches))
         else:
             # legacy fallback: clf vs poisson at blend_weight

@@ -141,6 +141,10 @@ def train(
         f"  ✓ blend weights: GBM {bw[0]:.3f} | NN {bw[1]:.3f} | Poisson {bw[2]:.3f} "
         f"| NN val log-loss {info['nn_val_loss']:.4f}"
     )
+    console.print(
+        f"  ✓ blend: {'stacked meta-learner' if info.get('use_stacker') else 'convex weights'} "
+        f"| calibration: {info.get('calibrator', '?')} | DC rho: {info.get('dc_rho', 0):.4f}"
+    )
 
     dc = None
     if model == "all+dc":

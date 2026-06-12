@@ -52,29 +52,61 @@ def train_ensemble(
     nn.fit(train_df[feat_cols], y_train, val_df[feat_cols], y_val,
            sample_weight=train_df.get("sample_weight"))
 
-    log("Fitting blend weights + calibration")
+    log("Fitting Dixon-Coles rho on validation scorelines")
+    from wm.models.goals_gbm import predict_lambdas
+    lh_val, la_val = predict_lambdas(m_home, m_away, val_df)
+    lh_val = np.clip(lh_val, 0.05, 8.0)
+    la_val = np.clip(la_val, 0.05, 8.0)
+    dc_rho = ensemble.fit_dc_rho(
+        lh_val, la_val,
+        val_df["goals_home"].to_numpy(), val_df["goals_away"].to_numpy(),
+    )
+
+    log("Fitting blend (convex weights vs stacked meta-learner) + calibration")
     probe = ensemble.MatchPredictor(
         clf=clf, goals_home_model=m_home, goals_away_model=m_away,
         calibrator=calibrate.WDLCalibrator(), nn=nn,
-        max_goals=cfg.simulation.max_goals_grid,
+        max_goals=cfg.simulation.max_goals_grid, dc_rho=dc_rho,
     )
     branches, _, _, _ = probe.branch_probs(val_df)
-    blend_w = ensemble.fit_blend_weights(branches, y_val)
 
-    blended_val = sum(w * P for w, P in zip(blend_w, branches))
-    blended_val = blended_val / blended_val.sum(axis=1, keepdims=True)
-    calibrator = calibrate.WDLCalibrator()
-    calibrator.fit(blended_val, y_val)
+    def _ll(p: np.ndarray) -> float:
+        idx = np.arange(len(y_val))
+        return -float(np.mean(np.log(p[idx, y_val] + 1e-12)))
+
+    # Candidate A: convex blend
+    blend_w = ensemble.fit_blend_weights(branches, y_val)
+    convex_p = sum(w * P for w, P in zip(blend_w, branches))
+    convex_p = convex_p / convex_p.sum(axis=1, keepdims=True)
+
+    # Candidate B: stacked meta-learner (log-prob features + match context)
+    stacker = ensemble.StackedBlender().fit(branches, val_df, y_val)
+    stacked_p = stacker.predict_proba(branches, val_df)
+
+    use_stacker = _ll(stacked_p) < _ll(convex_p)
+    blended_val = stacked_p if use_stacker else convex_p
+
+    # Calibration: vector scaling vs temperature, keep the better on val
+    temp_cal = calibrate.WDLCalibrator().fit(blended_val, y_val)
+    vec_cal = calibrate.VectorScalingCalibrator().fit(blended_val, y_val)
+    calibrator = (
+        vec_cal if _ll(vec_cal.predict(blended_val)) < _ll(temp_cal.predict(blended_val))
+        else temp_cal
+    )
 
     predictor = ensemble.MatchPredictor(
         clf=clf, goals_home_model=m_home, goals_away_model=m_away,
         calibrator=calibrator, nn=nn, blend_weights=blend_w,
         blend_weight=cfg.model.blend_weight, max_goals=cfg.simulation.max_goals_grid,
+        dc_rho=dc_rho, stacker=stacker if use_stacker else None,
     )
     info = {
         "blend_weights": blend_w.tolist(),
+        "use_stacker": use_stacker,
+        "calibrator": type(calibrator).__name__,
         "nn_val_loss": nn.best_val_loss_,
         "clf_best_iter": clf.best_iteration,
         "n_nn_models": n_models,
+        "dc_rho": dc_rho,
     }
     return predictor, info

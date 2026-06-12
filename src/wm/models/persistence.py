@@ -27,6 +27,12 @@ def save(
     if predictor.nn is not None:
         with open(model_dir / "neural_net.pkl", "wb") as f:
             pickle.dump(predictor.nn, f)
+    stacker_path = model_dir / "stacker.pkl"
+    if predictor.stacker is not None:
+        with open(stacker_path, "wb") as f:
+            pickle.dump(predictor.stacker, f)
+    elif stacker_path.exists():
+        stacker_path.unlink()  # stale stacker from a previous train run
     with open(model_dir / "meta.json", "w") as f:
         json.dump(
             {
@@ -36,6 +42,7 @@ def save(
                     if predictor.blend_weights is not None else None
                 ),
                 "max_goals": predictor.max_goals,
+                "dc_rho": predictor.dc_rho,
                 **(meta or {}),
             },
             f,
@@ -61,6 +68,12 @@ def load(model_dir: Path) -> tuple[MatchPredictor, DixonColes | None]:
         with open(nn_path, "rb") as f:
             nn = pickle.load(f)
 
+    stacker = None
+    stacker_path = model_dir / "stacker.pkl"
+    if stacker_path.exists():
+        with open(stacker_path, "rb") as f:
+            stacker = pickle.load(f)
+
     predictor = MatchPredictor(
         clf=clf,
         goals_home_model=gh,
@@ -70,6 +83,8 @@ def load(model_dir: Path) -> tuple[MatchPredictor, DixonColes | None]:
         blend_weights=meta.get("blend_weights"),
         blend_weight=meta.get("blend_weight", 0.5),
         max_goals=meta.get("max_goals", 10),
+        dc_rho=meta.get("dc_rho", 0.0),
+        stacker=stacker,
     )
 
     dc = None

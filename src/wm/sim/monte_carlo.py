@@ -98,7 +98,10 @@ class TournamentSimulator:
             wdl = np.exp(logit - logit.max())
             wdl = wdl / wdl.sum()
 
-        grid = independent_poisson_grid(lh, la, self.cfg.simulation.max_goals_grid)
+        grid = independent_poisson_grid(
+            lh, la, self.cfg.simulation.max_goals_grid,
+            rho=self.predictor.dc_rho,
+        )
         # Reshape the Poisson grid so its W/D/L marginals match the full
         # ensemble (NN + GBM + Poisson) — this is how the neural net affects
         # sampled scorelines and therefore championship odds.
