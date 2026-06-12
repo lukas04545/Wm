@@ -20,6 +20,22 @@ STATIC_DIR = Path(__file__).parent / "static"
 _state: dict = {}
 
 
+# NOTE: request models must live at module level — with
+# `from __future__ import annotations` FastAPI cannot resolve classes
+# defined inside create_app()'s local scope (body would silently become
+# a query parameter).
+class PredictRequest(BaseModel):
+    home: str
+    away: str
+    venue: Optional[str] = "MetLife Stadium"
+    neutral: Optional[bool] = True
+
+
+class SimulateRequest(BaseModel):
+    runs: int = 10000
+    seed: int = 42
+
+
 def _load_state(cfg: cfg_mod.Config) -> None:
     """Attempt to load models and cached simulation results."""
     models_dir = cfg.path("models")
@@ -124,12 +140,6 @@ def create_app(config_path: Path | None = None) -> FastAPI:
         sorted_elos = sorted(elos.items(), key=lambda x: x[1], reverse=True)
         return {"rankings": [{"team": t, "elo": round(v)} for t, v in sorted_elos[:48]]}
 
-    class PredictRequest(BaseModel):
-        home: str
-        away: str
-        venue: Optional[str] = "MetLife Stadium"
-        neutral: Optional[bool] = True
-
     @app.post("/api/predict")
     async def predict_match(req: PredictRequest):
         if not _state.get("models_loaded"):
@@ -186,10 +196,6 @@ def create_app(config_path: Path | None = None) -> FastAPI:
             }
         except Exception as e:
             raise HTTPException(status_code=500, detail=str(e))
-
-    class SimulateRequest(BaseModel):
-        runs: int = 10000
-        seed: int = 42
 
     @app.post("/api/simulate")
     async def run_simulation(req: SimulateRequest, background_tasks: BackgroundTasks):

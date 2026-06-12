@@ -63,6 +63,9 @@ def clean(df: pd.DataFrame) -> pd.DataFrame:
     """Clean and enrich the raw results dataframe."""
     df = df.copy()
     df["date"] = pd.to_datetime(df["date"])
+    # Drop fixtures that haven't been played yet (dataset includes scheduled
+    # matches with NA scores) and anything else without a result
+    df = df.dropna(subset=["home_score", "away_score"])
     df = df.sort_values("date").reset_index(drop=True)
     df["match_id"] = df.index
     df["tournament_tier"] = df["tournament"].apply(get_tournament_tier)

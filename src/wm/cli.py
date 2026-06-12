@@ -108,15 +108,14 @@ def build_features(
 
 @app.command()
 def train(
-    model: str = typer.Option("all", help="Model to train: wdl|goals|all"),
+    model: str = typer.Option("all", help="Models to train: all | all+dc (adds slow Dixon-Coles reference fit)"),
     config: Path = typer.Option("config/default.yaml", help="Config file"),
 ):
-    """Train the prediction models."""
+    """Train the prediction models (W/D/L classifier + goal regressors + calibration)."""
     import pandas as pd
     from wm import config as cfg_mod
     from wm.eval.splits import split
     from wm.models import wdl_classifier, goals_gbm, calibrate, ensemble, persistence
-    from wm.models.goals_poisson import DixonColes
 
     cfg = cfg_mod.load(config)
     processed_dir = cfg.path("data_processed")
@@ -126,17 +125,15 @@ def train(
     from wm.data.io import load_df
     feat_df = load_df(processed_dir / "features.parquet")
     train_df, val_df, test_df = split(feat_df, cfg.splits)
-    console.print(f"  Train: {len(train_df):,}  Val: {len(val_df):,}  Test: {len(test_df):,}")
+    console.print(f"  Train: {len(train_df):,}  Val: {len(val_df):,}")
 
-    if model in ("wdl", "all"):
-        console.print("[bold blue]Training W/D/L classifier...[/bold blue]")
-        clf = wdl_classifier.train(train_df, val_df, params=cfg.model.wdl)
-        console.print(f"  ✓ Best iteration: {clf.best_iteration}")
+    console.print("[bold blue]Training W/D/L classifier...[/bold blue]")
+    clf = wdl_classifier.train(train_df, val_df, params=cfg.model.wdl)
+    console.print(f"  ✓ Best iteration: {clf.best_iteration}")
 
-    if model in ("goals", "all"):
-        console.print("[bold blue]Training goals regressors (Poisson)...[/bold blue]")
-        m_home, m_away = goals_gbm.train(train_df, val_df, params=cfg.model.goals)
-        console.print(f"  ✓ Home goals: {m_home.best_iteration} rounds | Away: {m_away.best_iteration} rounds")
+    console.print("[bold blue]Training goals regressors (Poisson)...[/bold blue]")
+    m_home, m_away = goals_gbm.train(train_df, val_df, params=cfg.model.goals)
+    console.print(f"  ✓ Home goals: {m_home.best_iteration} rounds | Away: {m_away.best_iteration} rounds")
 
     console.print("[bold blue]Calibrating probabilities...[/bold blue]")
     from wm.models.wdl_classifier import predict_proba
@@ -146,13 +143,17 @@ def train(
     calibrator.fit(val_probs, val_df[TARGET_WDL].astype(int).values)
     console.print(f"  ✓ Temperature: {calibrator.temperature:.4f}")
 
-    console.print("[bold blue]Fitting Dixon-Coles model...[/bold blue]")
-    from wm.data import build as build_mod
-    interim_dir = cfg.path("data_interim")
-    matches = build_mod.load(interim_dir / "matches.parquet")
-    dc = DixonColes(xi=0.0018)
-    dc.fit(matches[matches["date"] >= pd.Timestamp("2010-01-01")])
-    console.print("  ✓ Dixon-Coles fitted")
+    dc = None
+    if model == "all+dc":
+        # Reference model only — MLE over hundreds of team parameters is slow
+        console.print("[bold blue]Fitting Dixon-Coles model (slow)...[/bold blue]")
+        from wm.models.goals_poisson import DixonColes
+        from wm.data import build as build_mod
+        interim_dir = cfg.path("data_interim")
+        matches = build_mod.load(interim_dir / "matches.parquet")
+        dc = DixonColes(xi=0.0018)
+        dc.fit(matches[matches["date"] >= pd.Timestamp("2018-01-01")])
+        console.print("  ✓ Dixon-Coles fitted")
 
     predictor = ensemble.MatchPredictor(
         clf=clf,

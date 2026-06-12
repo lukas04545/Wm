@@ -7,7 +7,8 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from wm.data.teams import TEAM_CAPITALS, canonical
+from wm.data.build import TEAM_CAPITALS
+from wm.data.teams import canonical
 
 
 def haversine(lat1: float, lon1: float, lat2: float, lon2: float) -> float:

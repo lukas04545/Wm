@@ -18,7 +18,9 @@ TARGET_WDL = "label_wdl"     # 2=home win, 1=draw, 0=away win
 TARGET_GH = "goals_home"
 TARGET_GA = "goals_away"
 
-CATEGORICAL_FEATURES = ["tournament_tier", "conf_home", "conf_away"]
+# conf_home/conf_away stay as reference columns but are excluded from model
+# features (LightGBM rejects string dtype); conf_strength_* carries the signal.
+CATEGORICAL_FEATURES: list[str] = []
 
 
 def build_matrix(

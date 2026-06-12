@@ -1,9 +1,11 @@
-data/raw/
-data/interim/
-data/processed/
-models/
-reports/*.html
-reports/simulation/
+# Data and artifacts (root-level only — do NOT anchor-less match src/wm/models!)
+/data/raw/
+/data/interim/
+/data/processed/
+/models/
+/reports/*.html
+/reports/simulation/
+/reports/*.png
 *.pyc
 __pycache__/
 .pytest_cache/
