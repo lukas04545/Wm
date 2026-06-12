@@ -139,23 +139,27 @@ def train(
     m_home, m_away = goals_gbm.train(train_df, val_df, params=cfg.model.goals)
     console.print(f"  ✓ Home goals: {m_home.best_iteration} rounds | Away: {m_away.best_iteration} rounds")
 
-    console.print("[bold blue]Training neural network (backpropagation)...[/bold blue]")
-    from wm.models.neural_net import MLPClassifier
+    console.print("[bold blue]Training neural network (backpropagation, bagged)...[/bold blue]")
+    from wm.models.neural_net import BaggedMLPClassifier
     from wm.models.wdl_classifier import get_feature_cols
     from wm.features.matrix import TARGET_WDL
 
     feat_cols = get_feature_cols(train_df)
     y_train = train_df[TARGET_WDL].astype(int).values
     y_val = val_df[TARGET_WDL].astype(int).values
-    nn = MLPClassifier(hidden=(128, 64), dropout=0.2, lr=1e-3, l2=1e-4,
-                       max_epochs=200, patience=12, seed=cfg.simulation.seed)
+    nn_cfg = dict(cfg.model.nn) if cfg.model.nn else {}
+    n_models = nn_cfg.pop("n_models", 3)
+    nn_cfg.setdefault("hidden", (192, 96, 48))
+    nn_cfg["hidden"] = tuple(nn_cfg["hidden"])
+    nn_cfg.setdefault("lr", nn_cfg.pop("learning_rate", 8e-4))
+    nn = BaggedMLPClassifier(n_models=n_models, base_seed=cfg.simulation.seed, **nn_cfg)
     nn.fit(
         train_df[feat_cols], y_train,
         val_df[feat_cols], y_val,
         sample_weight=train_df.get("sample_weight"),
     )
     console.print(
-        f"  ✓ {nn.n_epochs_run_} epochs | best val log-loss: {nn.best_val_loss_:.4f}"
+        f"  ✓ {n_models} nets × ~{nn.n_epochs_run_} epochs | mean val log-loss: {nn.best_val_loss_:.4f}"
     )
 
     console.print("[bold blue]Optimizing blend weights on validation...[/bold blue]")

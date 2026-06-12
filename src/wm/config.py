@@ -34,6 +34,7 @@ class FeaturesConfig:
 class ModelConfig:
     wdl: dict[str, Any] = field(default_factory=dict)
     goals: dict[str, Any] = field(default_factory=dict)
+    nn: dict[str, Any] = field(default_factory=dict)
     blend_weight: float = 0.5
 
 
@@ -92,6 +93,7 @@ def load(path: Path | None = None) -> Config:
     cfg.model = ModelConfig(
         wdl=m.get("wdl", {}),
         goals=m.get("goals", {}),
+        nn=m.get("nn", {}),
         blend_weight=m.get("blend_weight", 0.5),
     )
     s = raw.get("simulation", {})

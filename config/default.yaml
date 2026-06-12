@@ -21,21 +21,34 @@ features:
 
 model:
   wdl:
-    n_estimators: 2000
-    learning_rate: 0.03
-    num_leaves: 63
-    min_child_samples: 20
+    n_estimators: 4000
+    learning_rate: 0.02
+    num_leaves: 31
+    min_child_samples: 40
     subsample: 0.8
-    colsample_bytree: 0.8
-    early_stopping_rounds: 50
+    colsample_bytree: 0.7
+    lambda_l2: 1.0
+    early_stopping_rounds: 80
     verbose: -1
   goals:
-    n_estimators: 1000
-    learning_rate: 0.03
+    n_estimators: 2000
+    learning_rate: 0.02
     num_leaves: 31
+    min_child_samples: 40
+    colsample_bytree: 0.7
+    lambda_l2: 1.0
+    early_stopping_rounds: 80
     objective: poisson
     verbose: -1
-  blend_weight: 0.5  # weight for classifier vs Poisson in final blend (tuned on val)
+  nn:
+    n_models: 3            # bagged seeds
+    hidden: [192, 96, 48]
+    learning_rate: 0.0008
+    l2: 0.0003
+    dropout: 0.3
+    max_epochs: 300
+    patience: 20
+  blend_weight: 0.5  # legacy 2-branch fallback only
 
 simulation:
   n_runs: 100000

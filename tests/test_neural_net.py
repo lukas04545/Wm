@@ -99,6 +99,31 @@ def test_pickle_roundtrip():
     assert np.allclose(restored.predict_proba(X), net.predict_proba(X))
 
 
+def test_bagged_mlp_averages_and_improves():
+    """Bagged ensemble must produce valid probs and not be worse than a single net."""
+    from wm.models.neural_net import BaggedMLPClassifier, MLPClassifier
+    X, y = make_data(n=900)
+    X_tr, y_tr = X.iloc[:700], y[:700]
+    X_va, y_va = X.iloc[700:], y[700:]
+
+    single = MLPClassifier(hidden=(32, 16), max_epochs=60, patience=10, seed=1)
+    single.fit(X_tr, y_tr, X_va, y_va)
+
+    bag = BaggedMLPClassifier(n_models=3, base_seed=1, hidden=(32, 16),
+                              max_epochs=60, patience=10)
+    bag.fit(X_tr, y_tr, X_va, y_va)
+
+    probs = bag.predict_proba(X_va)
+    assert probs.shape == (200, 3)
+    assert np.allclose(probs.sum(axis=1), 1.0)
+    assert len(bag.models_) == 3
+
+    yv_oh = np.eye(3)[y_va]
+    bag_ll = -np.mean(np.log((probs * yv_oh).sum(1) + 1e-12))
+    single_ll = -np.mean(np.log((single.predict_proba(X_va) * yv_oh).sum(1) + 1e-12))
+    assert bag_ll <= single_ll + 0.02  # bagging shouldn't hurt
+
+
 def test_blend_weights_on_simplex():
     from wm.models.ensemble import fit_blend_weights
     rng = np.random.default_rng(0)
