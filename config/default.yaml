@@ -1,0 +1,52 @@
+paths:
+  data_raw: data/raw
+  data_interim: data/interim
+  data_processed: data/processed
+  models: models
+  reports: reports
+
+elo:
+  k_wc: 60
+  k_continental: 50
+  k_qualifier: 40
+  k_friendly: 20
+  home_advantage: 100
+  initial: 1500
+
+features:
+  form_windows: [5, 10, 15]
+  h2h_window: 10
+  min_train_date: "1990-01-01"
+  weight_halflife_years: 8
+
+model:
+  wdl:
+    n_estimators: 2000
+    learning_rate: 0.03
+    num_leaves: 63
+    min_child_samples: 20
+    subsample: 0.8
+    colsample_bytree: 0.8
+    early_stopping_rounds: 50
+    verbose: -1
+  goals:
+    n_estimators: 1000
+    learning_rate: 0.03
+    num_leaves: 31
+    objective: poisson
+    verbose: -1
+  blend_weight: 0.5  # weight for classifier vs Poisson in final blend (tuned on val)
+
+simulation:
+  n_runs: 100000
+  seed: 42
+  squad_noise_std: 0.03  # team-strength perturbation per run
+  max_goals_grid: 10
+  et_lambda_factor: 0.333  # extra time goal rate vs 90-min rate
+  penalty_home_advantage: 0.0
+  base_penalty_conversion: 0.75
+
+splits:
+  train_end: "2017-12-31"
+  val_end: "2021-12-31"
+  # test: 2022-01-01 to present

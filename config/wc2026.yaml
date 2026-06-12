@@ -1,0 +1,250 @@
+# FIFA World Cup 2026 - Canada, Mexico, USA
+# Draw held: December 5, 2025, Washington D.C.
+
+tournament:
+  name: "FIFA World Cup 2026"
+  year: 2026
+  hosts: [Mexico, Canada, "United States"]
+  n_teams: 48
+  n_groups: 12
+  group_size: 4
+  advance_per_group: 2
+  best_thirds: 8
+
+groups:
+  A:
+    seeded: Mexico
+    teams: [Mexico, "South Africa", "South Korea", "Czech Republic"]
+    host: Mexico
+  B:
+    seeded: Canada
+    teams: [Canada, "Bosnia and Herzegovina", Qatar, Switzerland]
+    host: Canada
+  C:
+    seeded: Brazil
+    teams: [Brazil, Morocco, Haiti, Scotland]
+    host: United States
+  D:
+    seeded: "United States"
+    teams: ["United States", Paraguay, Australia, Turkey]
+    host: United States
+  E:
+    seeded: Germany
+    teams: [Germany, "Curaçao", "Ivory Coast", Ecuador]
+    host: United States
+  F:
+    seeded: Netherlands
+    teams: [Netherlands, Japan, Sweden, Tunisia]
+    host: United States
+  G:
+    seeded: Belgium
+    teams: [Belgium, Egypt, Iran, "New Zealand"]
+    host: United States
+  H:
+    seeded: Spain
+    teams: [Spain, "Cape Verde", "Saudi Arabia", Uruguay]
+    host: United States
+  I:
+    seeded: France
+    teams: [France, Senegal, Iraq, Norway]
+    host: United States
+  J:
+    seeded: Argentina
+    teams: [Argentina, Algeria, Austria, Jordan]
+    host: United States
+  K:
+    seeded: Portugal
+    teams: [Portugal, "DR Congo", Uzbekistan, Colombia]
+    host: United States
+  L:
+    seeded: England
+    teams: [England, Croatia, Ghana, Panama]
+    host: United States
+
+venues:
+  "Estadio Azteca":
+    city: "Mexico City"
+    country: Mexico
+    lat: 19.303
+    lon: -99.151
+    altitude_m: 2216
+    roof: false
+    capacity: 87523
+  "Estadio BBVA":
+    city: Monterrey
+    country: Mexico
+    lat: 25.669
+    lon: -100.246
+    altitude_m: 539
+    roof: false
+    capacity: 53500
+  "Estadio Akron":
+    city: Guadalajara
+    country: Mexico
+    lat: 20.688
+    lon: -103.464
+    altitude_m: 1560
+    roof: false
+    capacity: 49850
+  "BMO Field":
+    city: Toronto
+    country: Canada
+    lat: 43.633
+    lon: -79.419
+    altitude_m: 76
+    roof: false
+    capacity: 45736
+  "BC Place":
+    city: Vancouver
+    country: Canada
+    lat: 49.277
+    lon: -123.112
+    altitude_m: 5
+    roof: true
+    capacity: 54500
+  "MetLife Stadium":
+    city: "East Rutherford"
+    country: "United States"
+    lat: 40.813
+    lon: -74.075
+    altitude_m: 10
+    roof: false
+    capacity: 82500
+  "AT&T Stadium":
+    city: Arlington
+    country: "United States"
+    lat: 32.748
+    lon: -97.093
+    altitude_m: 163
+    roof: true
+    capacity: 80000
+  "SoFi Stadium":
+    city: Inglewood
+    country: "United States"
+    lat: 33.954
+    lon: -118.339
+    altitude_m: 28
+    roof: true
+    capacity: 70000
+  "Rose Bowl":
+    city: Pasadena
+    country: "United States"
+    lat: 34.162
+    lon: -118.168
+    altitude_m: 100
+    roof: false
+    capacity: 92542
+  "Levi's Stadium":
+    city: "Santa Clara"
+    country: "United States"
+    lat: 37.403
+    lon: -121.970
+    altitude_m: 10
+    roof: false
+    capacity: 68500
+  "Allegiant Stadium":
+    city: "Las Vegas"
+    country: "United States"
+    lat: 36.091
+    lon: -115.184
+    altitude_m: 610
+    roof: true
+    capacity: 65000
+  "State Farm Stadium":
+    city: Glendale
+    country: "United States"
+    lat: 33.528
+    lon: -112.263
+    altitude_m: 340
+    roof: true
+    capacity: 63400
+  "NRG Stadium":
+    city: Houston
+    country: "United States"
+    lat: 29.685
+    lon: -95.410
+    altitude_m: 12
+    roof: true
+    capacity: 71795
+  "Arrowhead Stadium":
+    city: "Kansas City"
+    country: "United States"
+    lat: 39.049
+    lon: -94.484
+    altitude_m: 271
+    roof: false
+    capacity: 76416
+  "Hard Rock Stadium":
+    city: "Miami Gardens"
+    country: "United States"
+    lat: 25.958
+    lon: -80.239
+    altitude_m: 3
+    roof: false
+    capacity: 65326
+  "Lincoln Financial Field":
+    city: Philadelphia
+    country: "United States"
+    lat: 39.901
+    lon: -75.168
+    altitude_m: 7
+    roof: false
+    capacity: 69176
+  "Gillette Stadium":
+    city: Foxborough
+    country: "United States"
+    lat: 42.091
+    lon: -71.264
+    altitude_m: 9
+    roof: false
+    capacity: 65878
+  "Lumen Field":
+    city: Seattle
+    country: "United States"
+    lat: 47.595
+    lon: -122.332
+    altitude_m: 7
+    roof: false
+    capacity: 68740
+
+# Team confederation membership
+confederations:
+  UEFA: [Germany, France, Spain, England, Portugal, Netherlands, Belgium, Italy, Croatia,
+         Switzerland, Poland, Austria, Serbia, Hungary, Turkey, Denmark, Romania, Scotland,
+         Sweden, Norway, "Czech Republic", "Bosnia and Herzegovina", Ukraine, Slovenia]
+  CONMEBOL: [Argentina, Brazil, Colombia, Uruguay, Ecuador, Chile, Paraguay, Venezuela,
+              Peru, Bolivia]
+  CONCACAF: ["United States", Mexico, Canada, Panama, Honduras, Jamaica, Costa Rica,
+              Guatemala, Cuba, "El Salvador", Haiti, Curaçao]
+  CAF: [Morocco, Senegal, Nigeria, "Ivory Coast", Egypt, Algeria, Cameroon, Ghana,
+        "South Africa", Tunisia, "DR Congo", Mali, "Cape Verde"]
+  AFC: [Japan, "South Korea", Australia, Iran, "Saudi Arabia", Jordan, Uzbekistan, Iraq,
+        Qatar, Syria, Vietnam, Oman]
+  OFC: ["New Zealand", Fiji, Solomon Islands]
+
+# Bracket: R32 slot assignments for third-place finishers
+# Maps sorted tuple of groups that provided 8 third-placers → slot assignments
+# Slot format: which R32 match each third-placer fills
+# Based on FIFA Annex C (simplified representative mapping)
+# Full 495-combination table is generated programmatically in tournament.py
+r32_bracket_slots:
+  # R32 match indices (0-based): which group positions feed each match
+  # Format: [team_a_source, team_b_source]
+  # Sources: "A1"=Group A winner, "B2"=Group B runner-up, "3rd_X"=best 3rd from group X
+  fixed_matches:
+    - [A1, 3rd_BCDE]
+    - [B1, A2]
+    - [C1, 3rd_AFJK]
+    - [D1, C2]
+    - [E1, 3rd_GHIL]
+    - [F1, E2]
+    - [G1, F2]
+    - [H1, G2]
+    - [I1, H2]
+    - [J1, I2]
+    - [K1, J2]
+    - [L1, K2]
+    - [3rd_ABCD, L2]
+    - [3rd_EFGH, D2]
+    - [3rd_IJKL, B2]
+    - [3rd_5th, 3rd_6th]

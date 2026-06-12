@@ -1,0 +1,14 @@
+data/raw/
+data/interim/
+data/processed/
+models/
+reports/*.html
+reports/simulation/
+*.pyc
+__pycache__/
+.pytest_cache/
+*.egg-info/
+dist/
+.env
+.venv/
+venv/
