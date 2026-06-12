@@ -148,6 +148,49 @@ class TournamentSimulator:
             return self._predict_fn(home, away, neutral, noise=noise, rng=rng, city=city)
         return fn
 
+    def _precompute_cache(self) -> None:
+        """
+        Fill the match cache for every possible matchup in ONE batched
+        ensemble pass (vectorized LightGBM/NN) instead of thousands of
+        single-row passes scattered through the simulation runs:
+          - the 72 real group fixtures at their real venues/flags
+          - all ordered team pairs at a neutral default venue (knockouts)
+        """
+        keys: list[tuple] = []
+        rows: list[pd.DataFrame] = []
+
+        if self.fixtures:
+            for fx in self.fixtures:
+                key = (fx["home"], fx["away"], fx["neutral"], fx.get("city"))
+                if key not in self._match_cache:
+                    keys.append(key)
+                    rows.append(self._make_row(fx["home"], fx["away"], fx["neutral"],
+                                               city=fx.get("city")))
+
+        all_teams = [t for teams in self.groups.values() for t in teams]
+        for a in all_teams:
+            for b in all_teams:
+                if a == b:
+                    continue
+                key = (a, b, True, None)
+                if key not in self._match_cache:
+                    keys.append(key)
+                    rows.append(self._make_row(a, b, True))
+
+        if not rows:
+            return
+        batch = pd.concat(rows, ignore_index=True)
+        out = self.predictor.predict(batch)
+        for i, key in enumerate(keys):
+            lh = float(np.clip(out["lambda_home"][i], 0.05, 8.0))
+            la = float(np.clip(out["lambda_away"][i], 0.05, 8.0))
+            wdl = np.array([
+                float(out["p_away_win"][i]),
+                float(out["p_draw"][i]),
+                float(out["p_home_win"][i]),
+            ])
+            self._match_cache[key] = (lh, la, wdl)
+
     def run(self, n_runs: int, seed: int = 42) -> dict[str, dict[str, float]]:
         """
         Run Monte Carlo simulation.
@@ -155,6 +198,8 @@ class TournamentSimulator:
         """
         sim_cfg = self.cfg.simulation
         all_teams = [t for teams in self.groups.values() for t in teams]
+
+        self._precompute_cache()
 
         # Counters
         champion_count: dict[str, int] = defaultdict(int)

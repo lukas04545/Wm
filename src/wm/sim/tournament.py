@@ -123,11 +123,13 @@ def _apply_score(records: dict[str, TeamRecord], home: str, away: str, gh: int, 
 
 
 def _sample_score(grid: np.ndarray, rng: np.random.Generator) -> tuple[int, int]:
-    flat = np.clip(grid.flatten(), 0, None)
-    flat /= flat.sum()
-    idx = rng.choice(len(flat), p=flat)
-    n = int(round(np.sqrt(len(flat))))
-    return divmod(idx, n)
+    flat = np.clip(grid.ravel(), 0, None)
+    # inverse-CDF sampling: ~5x faster than rng.choice(p=...) in the hot loop
+    cdf = np.cumsum(flat)
+    idx = int(np.searchsorted(cdf, rng.random() * cdf[-1]))
+    idx = min(idx, len(flat) - 1)
+    n = grid.shape[0]
+    return idx // n, idx % n
 
 
 def simulate_group_stage(
@@ -257,11 +259,7 @@ def simulate_knockout_match(
             return played[key]
 
     grid, (lh, la) = predict_fn(home, away, neutral=True)
-    flat = np.clip(grid.flatten(), 0, None)
-    flat /= flat.sum()
-    n = int(round(np.sqrt(len(flat))))
-    idx = rng.choice(len(flat), p=flat)
-    gh, ga = divmod(idx, n)
+    gh, ga = _sample_score(grid, rng)
 
     if gh != ga:
         return home if gh > ga else away

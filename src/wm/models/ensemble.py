@@ -24,6 +24,17 @@ def scoreline_grid_to_wdl(grid: np.ndarray) -> np.ndarray:
     return np.array([pa / total, pd_ / total, ph / total])
 
 
+# factorials 0..30 — enough for any realistic goal grid
+_FACTORIALS = np.cumprod(np.concatenate([[1.0], np.arange(1.0, 31.0)]))
+
+
+def _poisson_pmf_vec(max_g: int, lam: float) -> np.ndarray:
+    """Closed-form Poisson pmf vector — ~30x faster than scipy.stats in the
+    simulation hot loop (520k+ grid builds per 5k-run simulation)."""
+    k = np.arange(max_g + 1)
+    return np.exp(-lam) * lam ** k / _FACTORIALS[: max_g + 1]
+
+
 def independent_poisson_grid(
     lh: float, la: float, max_g: int = 10, rho: float = 0.0
 ) -> np.ndarray:
@@ -33,10 +44,7 @@ def independent_poisson_grid(
     {0-0, 1-0, 0-1, 1-1} cells (negative rho inflates draws — the empirically
     observed pattern that independent Poissons miss).
     """
-    grid = np.outer(
-        poisson.pmf(range(max_g + 1), lh),
-        poisson.pmf(range(max_g + 1), la),
-    )
+    grid = np.outer(_poisson_pmf_vec(max_g, lh), _poisson_pmf_vec(max_g, la))
     if rho != 0.0:
         from wm.models.goals_poisson import _tau
         for i in (0, 1):
@@ -75,6 +83,16 @@ def fit_dc_rho(
     return float(res.x)
 
 
+_REGION_MASKS: dict[int, tuple[np.ndarray, np.ndarray, np.ndarray]] = {}
+
+
+def _region_masks(n: int) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    if n not in _REGION_MASKS:
+        ones = np.ones((n, n))
+        _REGION_MASKS[n] = (np.triu(ones, 1), np.eye(n), np.tril(ones, -1))
+    return _REGION_MASKS[n]
+
+
 def reshape_grid_to_wdl(grid: np.ndarray, target_wdl: np.ndarray) -> np.ndarray:
     """
     Rescale a scoreline grid so its win/draw/loss marginals equal target_wdl
@@ -85,9 +103,7 @@ def reshape_grid_to_wdl(grid: np.ndarray, target_wdl: np.ndarray) -> np.ndarray:
     not just the headline W/D/L numbers.
     """
     n = grid.shape[0]
-    away_mask = np.triu(np.ones((n, n)), 1)   # home < away
-    draw_mask = np.eye(n)
-    home_mask = np.tril(np.ones((n, n)), -1)  # home > away
+    away_mask, draw_mask, home_mask = _region_masks(n)
 
     cur_away = float((grid * away_mask).sum())
     cur_draw = float((grid * draw_mask).sum())
