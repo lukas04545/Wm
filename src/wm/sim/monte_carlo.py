@@ -45,7 +45,30 @@ class TournamentSimulator:
         self.cfg = cfg
         self.squad_df = squad_df
         self.rankings_df = rankings_df
-        self._grid_cache: dict[tuple, np.ndarray] = {}
+        self._lambda_cache: dict[tuple, tuple[float, float]] = {}
+
+    def _base_lambdas(
+        self,
+        home: str,
+        away: str,
+        neutral: bool,
+        elo_home: float | None = None,
+        elo_away: float | None = None,
+    ) -> tuple[float, float]:
+        """Model-predicted expected goals, cached per matchup (the expensive part)."""
+        cache_key = (home, away, neutral)
+        if cache_key not in self._lambda_cache:
+            from wm.models.goals_gbm import predict_lambdas
+
+            row = self._make_row(home, away, neutral, elo_home, elo_away)
+            lh_arr, la_arr = predict_lambdas(
+                self.predictor.goals_home, self.predictor.goals_away, row
+            )
+            self._lambda_cache[cache_key] = (
+                float(np.clip(lh_arr[0], 0.05, 8.0)),
+                float(np.clip(la_arr[0], 0.05, 8.0)),
+            )
+        return self._lambda_cache[cache_key]
 
     def _predict_fn(
         self,
@@ -57,25 +80,7 @@ class TournamentSimulator:
         noise: float = 0.0,
         rng: np.random.Generator | None = None,
     ):
-        cache_key = (home, away, neutral)
-        if cache_key in self._grid_cache:
-            grid = self._grid_cache[cache_key]
-            lh = float(self.predictor.goals_home.predict(
-                self._make_row(home, away, neutral, elo_home, elo_away)
-            )[0])
-            la = float(self.predictor.goals_away.predict(
-                self._make_row(home, away, neutral, elo_home, elo_away)
-            )[0])
-            return grid, (lh, la)
-
-        row = self._make_row(home, away, neutral, elo_home, elo_away)
-
-        from wm.models.wdl_classifier import predict_proba, get_feature_cols
-        from wm.models.goals_gbm import predict_lambdas
-
-        lh_arr, la_arr = predict_lambdas(self.predictor.goals_home, self.predictor.goals_away, row)
-        lh = float(np.clip(lh_arr[0], 0.05, 8.0))
-        la = float(np.clip(la_arr[0], 0.05, 8.0))
+        lh, la = self._base_lambdas(home, away, neutral, elo_home, elo_away)
 
         if noise > 0 and rng is not None:
             lh *= np.exp(rng.normal(0, noise))

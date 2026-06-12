@@ -48,10 +48,10 @@ def _load_state(cfg: cfg_mod.Config) -> None:
         _state["predictor"] = predictor
         _state["dc"] = dc
 
-        if (interim_dir / "matches.parquet").exists():
+        try:
             matches = build_mod.load(interim_dir / "matches.parquet")
             _state["elo_ratings"] = get_current_ratings(matches, cfg.elo)
-        else:
+        except FileNotFoundError:
             _state["elo_ratings"] = {}
 
         # Optional enrichments

@@ -101,8 +101,8 @@ def build_features(
     feat_df = build_matrix(matches, cfg, squad_df=squad_df, rankings_df=rankings_df)
     console.print(f"  ✓ Feature matrix: {len(feat_df)} rows × {len(feat_df.columns)} features")
 
-    feat_path = processed_dir / "features.parquet"
-    feat_df.to_parquet(feat_path, index=False)
+    from wm.data.io import save_df
+    feat_path = save_df(feat_df, processed_dir / "features.parquet")
     console.print(f"[green]✓ Features saved to {feat_path}[/green]")
 
 
@@ -123,7 +123,8 @@ def train(
     models_dir = cfg.path("models")
 
     console.print("[bold blue]Loading feature matrix...[/bold blue]")
-    feat_df = pd.read_parquet(processed_dir / "features.parquet")
+    from wm.data.io import load_df
+    feat_df = load_df(processed_dir / "features.parquet")
     train_df, val_df, test_df = split(feat_df, cfg.splits)
     console.print(f"  Train: {len(train_df):,}  Val: {len(val_df):,}  Test: {len(test_df):,}")
 
@@ -187,7 +188,8 @@ def evaluate(
     from wm.features.matrix import TARGET_WDL
 
     cfg = cfg_mod.load(config)
-    feat_df = pd.read_parquet(cfg.path("data_processed") / "features.parquet")
+    from wm.data.io import load_df
+    feat_df = load_df(cfg.path("data_processed") / "features.parquet")
     train_df, val_df, test_df = split(feat_df, cfg.splits)
     eval_df = val_df if split_name == "val" else test_df
 

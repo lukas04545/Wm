@@ -110,9 +110,10 @@ def build(results_df: pd.DataFrame) -> pd.DataFrame:
 
 
 def save(df: pd.DataFrame, path: Path) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    df.to_parquet(path, index=False)
+    from wm.data.io import save_df
+    save_df(df, path)
 
 
 def load(path: Path) -> pd.DataFrame:
-    return pd.read_parquet(path)
+    from wm.data.io import load_df
+    return load_df(path)
