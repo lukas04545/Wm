@@ -49,6 +49,8 @@ class SimConfig:
 
 @dataclass
 class SplitsConfig:
+    train_ratio: float = 0.8   # fraction of time-sorted matches used for training
+    # Legacy date fields kept for split_by_date() helper
     train_end: str = "2017-12-31"
     val_end: str = "2021-12-31"
 
