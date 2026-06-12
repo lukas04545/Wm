@@ -39,6 +39,8 @@ class TournamentSimulator:
         squad_df: pd.DataFrame | None = None,
         rankings_df: pd.DataFrame | None = None,
         team_state: dict[str, dict] | None = None,
+        fixtures: list[dict] | None = None,
+        played_knockouts: dict | None = None,
     ):
         self.groups = groups
         self.predictor = predictor
@@ -47,7 +49,9 @@ class TournamentSimulator:
         self.squad_df = squad_df
         self.rankings_df = rankings_df
         self.team_state = team_state
-        # cache per matchup: (lambda_home, lambda_away, ensemble_wdl)
+        self.fixtures = fixtures
+        self.played_knockouts = played_knockouts or {}
+        # cache per matchup+venue: (lambda_home, lambda_away, ensemble_wdl)
         self._match_cache: dict[tuple, tuple[float, float, np.ndarray]] = {}
 
     def _base_match(
@@ -57,14 +61,15 @@ class TournamentSimulator:
         neutral: bool,
         elo_home: float | None = None,
         elo_away: float | None = None,
+        city: str | None = None,
     ) -> tuple[float, float, np.ndarray]:
         """
         Expected goals AND calibrated ensemble W/D/L for a matchup, cached
         (the expensive part — one full ensemble forward pass per matchup).
         """
-        cache_key = (home, away, neutral)
+        cache_key = (home, away, neutral, city)
         if cache_key not in self._match_cache:
-            row = self._make_row(home, away, neutral, elo_home, elo_away)
+            row = self._make_row(home, away, neutral, elo_home, elo_away, city=city)
             out = self.predictor.predict(row)
             lh = float(np.clip(out["lambda_home"][0], 0.05, 8.0))
             la = float(np.clip(out["lambda_away"][0], 0.05, 8.0))
@@ -85,8 +90,9 @@ class TournamentSimulator:
         elo_away: float | None = None,
         noise: float = 0.0,
         rng: np.random.Generator | None = None,
+        city: str | None = None,
     ):
-        lh, la, wdl = self._base_match(home, away, neutral, elo_home, elo_away)
+        lh, la, wdl = self._base_match(home, away, neutral, elo_home, elo_away, city=city)
 
         if noise > 0 and rng is not None:
             # Per-run squad/form uncertainty: perturb expected goals (scoreline
@@ -115,15 +121,19 @@ class TournamentSimulator:
         neutral: bool,
         elo_home: float | None = None,
         elo_away: float | None = None,
+        city: str | None = None,
     ) -> pd.DataFrame:
+        from wm.sim.match_sampler import venue_for_city
+
         eh = elo_home if elo_home is not None else self.elo_ratings.get(home, 1500.0)
         ea = elo_away if elo_away is not None else self.elo_ratings.get(away, 1500.0)
+        venue = venue_for_city(city) if city else "MetLife Stadium"
         return build_fixture_row(
             home=home,
             away=away,
             elo_home=eh,
             elo_away=ea,
-            venue="MetLife Stadium",  # default; ideally venue-specific
+            venue=venue,
             date=pd.Timestamp("2026-07-01"),
             is_neutral=neutral,
             is_host_home=False,
@@ -134,8 +144,8 @@ class TournamentSimulator:
         )
 
     def _predict_fn_wrapper(self, noise: float, rng: np.random.Generator):
-        def fn(home: str, away: str, neutral: bool = True):
-            return self._predict_fn(home, away, neutral, noise=noise, rng=rng)
+        def fn(home: str, away: str, neutral: bool = True, city: str | None = None):
+            return self._predict_fn(home, away, neutral, noise=noise, rng=rng, city=city)
         return fn
 
     def run(self, n_runs: int, seed: int = 42) -> dict[str, dict[str, float]]:
@@ -170,7 +180,8 @@ class TournamentSimulator:
             predict_fn = self._predict_fn_wrapper(noise, rng)
 
             # Group stage
-            group_results = trn.simulate_group_stage(self.groups, predict_fn, rng, noise=noise)
+            group_results = trn.simulate_group_stage(self.groups, predict_fn, rng, noise=noise,
+                                                     fixtures=self.fixtures)
             third_ranking = trn.get_third_place_ranking(group_results)
 
             # Track group points
@@ -205,6 +216,7 @@ class TournamentSimulator:
                     max_goals=sim_cfg.max_goals_grid,
                     et_factor=sim_cfg.et_lambda_factor,
                     base_pen=sim_cfg.base_penalty_conversion,
+                    played=self.played_knockouts,
                 )
                 r32_winners.append(winner)
 
@@ -218,7 +230,8 @@ class TournamentSimulator:
                 trn.simulate_knockout_match(h, a, predict_fn, rng,
                                              max_goals=sim_cfg.max_goals_grid,
                                              et_factor=sim_cfg.et_lambda_factor,
-                                             base_pen=sim_cfg.base_penalty_conversion)
+                                             base_pen=sim_cfg.base_penalty_conversion,
+                                             played=self.played_knockouts)
                 for h, a in r16_pairs
             ]
 
@@ -232,7 +245,8 @@ class TournamentSimulator:
                 trn.simulate_knockout_match(h, a, predict_fn, rng,
                                              max_goals=sim_cfg.max_goals_grid,
                                              et_factor=sim_cfg.et_lambda_factor,
-                                             base_pen=sim_cfg.base_penalty_conversion)
+                                             base_pen=sim_cfg.base_penalty_conversion,
+                                             played=self.played_knockouts)
                 for h, a in qf_pairs
             ]
 
@@ -246,7 +260,8 @@ class TournamentSimulator:
                 trn.simulate_knockout_match(h, a, predict_fn, rng,
                                              max_goals=sim_cfg.max_goals_grid,
                                              et_factor=sim_cfg.et_lambda_factor,
-                                             base_pen=sim_cfg.base_penalty_conversion)
+                                             base_pen=sim_cfg.base_penalty_conversion,
+                                             played=self.played_knockouts)
                 for h, a in sf_pairs
             ]
 
@@ -263,6 +278,7 @@ class TournamentSimulator:
                     max_goals=sim_cfg.max_goals_grid,
                     et_factor=sim_cfg.et_lambda_factor,
                     base_pen=sim_cfg.base_penalty_conversion,
+                    played=self.played_knockouts,
                 )
                 stage_counts["champion"][champion] += 1
 

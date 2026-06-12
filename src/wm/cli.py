@@ -277,9 +277,10 @@ def simulate(
     runs: int = typer.Option(100_000, help="Number of Monte Carlo runs"),
     seed: int = typer.Option(42),
     out: Path = typer.Option("reports/simulation/results.json", help="Output JSON path"),
+    live: bool = typer.Option(True, help="Condition on real fixtures/venues and already-played 2026 results"),
     config: Path = typer.Option("config/default.yaml", help="Config file"),
 ):
-    """Run Monte Carlo tournament simulation."""
+    """Run Monte Carlo tournament simulation (live mode locks in real results)."""
     import pandas as pd
     from wm import config as cfg_mod
     from wm.models import persistence
@@ -310,6 +311,21 @@ def simulate(
     squad_df = pr_mod.get_squad_features(cfg.path("data_raw"))
     rankings_df = rank_mod.load(cfg.path("data_raw"))
 
+    # Live mode: real fixtures (venues, host flags) + already-played results
+    fixtures = None
+    played_knockouts = None
+    if live:
+        from wm.sim.fixtures import load_group_fixtures, load_played_knockouts
+        fixtures = load_group_fixtures(cfg.path("data_raw"), groups) or None
+        played_knockouts = load_played_knockouts(cfg.path("data_raw")) or None
+        if fixtures:
+            n_played = sum(1 for f in fixtures if f["played"])
+            console.print(
+                f"  ✓ Live mode: {len(fixtures)} real group fixtures "
+                f"({n_played} already played, locked in), "
+                f"{len(played_knockouts or {})} decided knockout matches"
+            )
+
     console.print(f"[bold blue]Simulating {runs:,} tournaments...[/bold blue]")
     simulator = TournamentSimulator(
         groups=groups,
@@ -319,6 +335,8 @@ def simulate(
         squad_df=squad_df,
         rankings_df=rankings_df,
         team_state=team_state,
+        fixtures=fixtures,
+        played_knockouts=played_knockouts,
     )
     results = simulator.run(runs, seed=seed)
 

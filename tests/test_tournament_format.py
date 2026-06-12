@@ -99,3 +99,44 @@ def test_group_standings_sorted():
     assert standings[1].team == "A"  # 7 pts, GD 3
     assert standings[2].team == "B"
     assert standings[3].team == "D"
+
+
+def venue_aware_predict_fn(home, away, neutral=True, city=None):
+    """Accepts the live-mode kwargs; home always wins 1-0."""
+    grid = np.zeros((11, 11))
+    grid[1, 0] = 1.0
+    return grid, (1.0, 0.5)
+
+
+def test_group_stage_locks_in_played_results():
+    """Played fixtures must contribute their REAL score, not a simulated one."""
+    rng = np.random.default_rng(0)
+    fixtures = []
+    for grp, teams in GROUPS.items():
+        import itertools
+        for h, a in itertools.combinations(teams, 2):
+            fixtures.append({
+                "group": grp, "home": h, "away": a, "city": "Houston",
+                "neutral": True, "played": False,
+                "goals_home": None, "goals_away": None,
+            })
+    # Lock in a real result that contradicts the predictor: South Africa 5-0 Mexico
+    for fx in fixtures:
+        if fx["home"] == "Mexico" and fx["away"] == "South Africa":
+            fx.update(played=True, goals_home=0, goals_away=5)
+
+    results = simulate_group_stage(GROUPS, venue_aware_predict_fn, rng, fixtures=fixtures)
+    rec = {r.team: r for r in results["A"].teams}
+    # South Africa got the locked-in 3 points and +5 GD from the real result
+    assert rec["South Africa"].pts >= 3
+    assert rec["South Africa"].gf >= 5
+    assert rec["Mexico"].ga >= 5
+
+
+def test_knockout_respects_played_result():
+    rng = np.random.default_rng(0)
+    played = {frozenset({"Brazil", "Argentina"}): "Argentina"}
+    # predictor says home (Brazil) always wins — but the real result rules
+    winner = simulate_knockout_match("Brazil", "Argentina", venue_aware_predict_fn,
+                                     rng, played=played)
+    assert winner == "Argentina"

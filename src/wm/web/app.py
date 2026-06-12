@@ -212,9 +212,11 @@ def create_app(config_path: Path | None = None) -> FastAPI:
             try:
                 _state["simulation_running"] = True
                 from wm.sim.monte_carlo import TournamentSimulator
+                from wm.sim.fixtures import load_group_fixtures, load_played_knockouts
                 predictor = _state["predictor"]
                 elos = _state.get("elo_ratings", {})
                 groups = _state["groups"]
+                raw_dir = cfg.path("data_raw")
 
                 simulator = TournamentSimulator(
                     groups=groups,
@@ -224,6 +226,8 @@ def create_app(config_path: Path | None = None) -> FastAPI:
                     squad_df=_state.get("squad_df"),
                     rankings_df=_state.get("rankings_df"),
                     team_state=_state.get("team_state"),
+                    fixtures=load_group_fixtures(raw_dir, groups) or None,
+                    played_knockouts=load_played_knockouts(raw_dir) or None,
                 )
                 results = simulator.run(req.runs, seed=req.seed)
                 _state["sim_results"] = results

@@ -110,47 +110,79 @@ class GroupResult:
         return self.standings()[2]
 
 
+def _apply_score(records: dict[str, TeamRecord], home: str, away: str, gh: int, ga: int) -> None:
+    rh, ra = records[home], records[away]
+    rh.gf += gh; rh.ga += ga; rh.gd += gh - ga
+    ra.gf += ga; ra.ga += gh; ra.gd += ga - gh
+    if gh > ga:
+        rh.pts += 3
+    elif gh == ga:
+        rh.pts += 1; ra.pts += 1
+    else:
+        ra.pts += 3
+
+
+def _sample_score(grid: np.ndarray, rng: np.random.Generator) -> tuple[int, int]:
+    flat = np.clip(grid.flatten(), 0, None)
+    flat /= flat.sum()
+    idx = rng.choice(len(flat), p=flat)
+    n = int(round(np.sqrt(len(flat))))
+    return divmod(idx, n)
+
+
 def simulate_group_stage(
     groups: dict[str, list[str]],
     predict_fn,
     rng: np.random.Generator,
     noise: float = 0.0,
+    fixtures: list[dict] | None = None,
 ) -> dict[str, GroupResult]:
     """
     Simulate all group matches.
-    predict_fn(home, away, neutral=True) → (score_grid, lambdas)
+    predict_fn(home, away, neutral=True, city=None) → (score_grid, lambdas)
       where score_grid is (max_g+1, max_g+1) probability array
-    noise: per-run team strength perturbation std
+    fixtures: optional real fixture list (from wm.sim.fixtures) carrying real
+      venue city, host/neutral flags, and — for matches already played —
+      actual scores, which are locked in instead of being re-simulated.
     Returns dict group_letter → GroupResult
     """
     results: dict[str, GroupResult] = {}
+    records_all: dict[str, dict[str, TeamRecord]] = {
+        group: {t: TeamRecord(team=t, group=group) for t in team_list}
+        for group, team_list in groups.items()
+    }
 
-    for group, team_list in groups.items():
-        records = {t: TeamRecord(team=t, group=group) for t in team_list}
-
-        # Round robin: each pair plays once
-        for home, away in itertools.combinations(team_list, 2):
-            grid, _ = predict_fn(home, away, neutral=True)
-            # Sample a scoreline
-            flat = grid.flatten()
-            flat = np.clip(flat, 0, None)
-            flat /= flat.sum()
-            idx = rng.choice(len(flat), p=flat)
-            n = int(round(np.sqrt(len(flat))))
-            gh, ga = divmod(idx, n)
-
-            # Update records
-            rh, ra = records[home], records[away]
-            rh.gf += gh; rh.ga += ga; rh.gd += gh - ga
-            ra.gf += ga; ra.ga += gh; ra.gd += ga - gh
-            if gh > ga:
-                rh.pts += 3
-            elif gh == ga:
-                rh.pts += 1; ra.pts += 1
+    if fixtures:
+        seen: dict[str, set[frozenset]] = {g: set() for g in groups}
+        for fx in fixtures:
+            group = fx["group"]
+            records = records_all[group]
+            home, away = fx["home"], fx["away"]
+            if home not in records or away not in records:
+                continue
+            seen[group].add(frozenset({home, away}))
+            if fx["played"]:
+                gh, ga = fx["goals_home"], fx["goals_away"]
             else:
-                ra.pts += 3
+                grid, _ = predict_fn(home, away, neutral=fx["neutral"], city=fx.get("city"))
+                gh, ga = _sample_score(grid, rng)
+            _apply_score(records, home, away, gh, ga)
+        # Any pairing missing from the fixture list (defensive): simulate it
+        for group, team_list in groups.items():
+            for home, away in itertools.combinations(team_list, 2):
+                if frozenset({home, away}) not in seen[group]:
+                    grid, _ = predict_fn(home, away, neutral=True)
+                    gh, ga = _sample_score(grid, rng)
+                    _apply_score(records_all[group], home, away, gh, ga)
+    else:
+        for group, team_list in groups.items():
+            for home, away in itertools.combinations(team_list, 2):
+                grid, _ = predict_fn(home, away, neutral=True)
+                gh, ga = _sample_score(grid, rng)
+                _apply_score(records_all[group], home, away, gh, ga)
 
-        results[group] = GroupResult(group=group, teams=list(records.values()))
+    for group in groups:
+        results[group] = GroupResult(group=group, teams=list(records_all[group].values()))
 
     return results
 
@@ -210,11 +242,20 @@ def simulate_knockout_match(
     max_goals: int = 10,
     et_factor: float = 0.333,
     base_pen: float = 0.75,
+    played: dict | None = None,
 ) -> str:
     """
     Simulate a knockout match (must produce a winner).
+    played: optional {frozenset({a, b}): winner} of already-decided knockout
+    matches — if this pairing was played in reality, the real winner is
+    returned instead of simulating.
     Returns winning team name.
     """
+    if played:
+        key = frozenset({home, away})
+        if key in played:
+            return played[key]
+
     grid, (lh, la) = predict_fn(home, away, neutral=True)
     flat = np.clip(grid.flatten(), 0, None)
     flat /= flat.sum()
