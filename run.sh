@@ -51,7 +51,7 @@ python -m pip install -e . --quiet
 # ── Pipeline (idempotent: each step is skipped if its output already exists) ──
 if [ ! -f data/raw/results.csv ]; then
   echo "==> [1/4] Downloading match data (~48k international matches)…"
-  python -m wm.cli ingest --source results
+  python -m wm.cli ingest --source all
 else
   echo "==> [1/4] Match data already downloaded ✓"
 fi

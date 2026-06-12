@@ -42,7 +42,7 @@ Options: `RUNS=50000 bash run.sh` (more Monte Carlo runs), `PORT=8080 bash run.s
 
 ```bash
 pip install -e .
-wm ingest --source results   # download match data (free, no auth)
+wm ingest --source all       # match data + player ratings + FIFA rankings (free, no auth)
 wm build-features            # leak-free feature matrix
 wm train                     # LightGBM W/D/L + Poisson goals + calibration
 wm evaluate                  # log-loss / Brier / RPS vs Elo baseline
@@ -52,12 +52,12 @@ wm serve                     # interactive browser UI
 wm predict Brazil Germany    # single match prediction
 ```
 
-Optional data (improves accuracy, needs a free Kaggle account):
-
-- EA FC player ratings → `data/raw/players/ea_fc_ratings.csv`
-  ([Kaggle dataset](https://www.kaggle.com/datasets/stefanoleone992/ea-sports-fc-24-complete-player-dataset))
-- FIFA rankings → `data/raw/rankings/fifa_rankings.csv`
-  ([Kaggle dataset](https://www.kaggle.com/datasets/cashncarry/fifaworldranking))
+All data sources download automatically — match results, FIFA-24 player
+attributes, and historical FIFA rankings come from free GitHub mirrors with
+no authentication. Optionally, an official EA FC ratings export from
+[Kaggle](https://www.kaggle.com/datasets/stefanoleone992/ea-sports-fc-24-complete-player-dataset)
+saved to `data/raw/players/ea_fc_ratings.csv` takes precedence over the
+auto-downloaded attribute-based ratings.
 
 ## How it works
 
