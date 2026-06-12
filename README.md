@@ -67,7 +67,7 @@ auto-downloaded attribute-based ratings.
 | **Features** | Rolling Elo + attack/defence goal ratings, opponent-adjusted form (performance vs Elo expectation, schedule strength), EWMA goals, form windows (5/10/15), rest days, head-to-head, travel km, altitude, heat/humidity, confederation strength, squad ratings, FIFA rank, GDP per capita, population, World Cup pedigree, host-nation status (115 features) |
 | **Models** | Three-branch ensemble: LightGBM W/D/L classifier + a bagged backprop neural net (NumPy MLP) + LightGBM Poisson goal regressors with Dixon-Coles low-score correction. Stacked meta-learner blend + vector-scaling calibration, both selected on validation |
 | **Split** | 80% of time-sorted matches → training, last 20% → validation (no temporal leakage) |
-| **Simulation** | Exact 2026 format: 12 groups → top 2 + 8 best thirds → R32 → … → Final. Scoreline grids are reshaped to the calibrated ensemble W/D/L, with extra time, penalties, and per-run squad-strength noise |
+| **Simulation** | Official 2026 bracket: 12 groups → top 2 + 8 best thirds → R32 (FIFA matches 73–88 with real venues) → … → Final at MetLife. Third-place slots filled by constraint-respecting matching; scoreline grids reshaped to the calibrated ensemble W/D/L, with extra time, penalties, and per-run squad-strength noise |
 | **Live mode** | `wm simulate` (default) reads the real 72-fixture schedule from the dataset: real venues per match (Azteca altitude, Houston heat…), real host/neutral flags, and **already-played 2026 results are locked in** instead of re-simulated. Re-run `wm ingest --source results --force && wm build-features && wm simulate` during the tournament to update the odds after every matchday |
 
 ## Development

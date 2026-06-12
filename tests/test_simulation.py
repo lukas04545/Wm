@@ -45,7 +45,7 @@ def test_simulation_champion_probabilities_sum_to_one():
         bracket = build_r32_bracket(results, thirds)
 
         # Quick knockout simulation
-        current = bracket
+        current = [(m[0], m[1]) for m in bracket]
         while len(current) > 1:
             winners = [simulate_knockout_match(h, a, dummy_predict_fn, rng) for h, a in current]
             current = list(zip(winners[::2], winners[1::2]))
@@ -75,11 +75,12 @@ def test_stage_probabilities_monotone():
         thirds = get_third_place_ranking(results)
         bracket = build_r32_bracket(results, thirds)
 
-        for h, a in bracket:
+        pairs = [(m[0], m[1]) for m in bracket]
+        for h, a in pairs:
             stages[h]["r32"] += 1
             stages[a]["r32"] += 1
 
-        r32w = [simulate_knockout_match(h, a, dummy_predict_fn, rng) for h, a in bracket]
+        r32w = [simulate_knockout_match(h, a, dummy_predict_fn, rng) for h, a in pairs]
         r16 = list(zip(r32w[::2], r32w[1::2]))
         for h, a in r16:
             stages[h]["r16"] += 1; stages[a]["r16"] += 1
@@ -116,7 +117,7 @@ def test_determinism_with_seed():
         results = simulate_group_stage(GROUPS, dummy_predict_fn, rng)
         thirds = get_third_place_ranking(results)
         bracket = build_r32_bracket(results, thirds)
-        current = bracket
+        current = [(m[0], m[1]) for m in bracket]
         while len(current) > 1:
             winners = [simulate_knockout_match(h, a, dummy_predict_fn, rng) for h, a in current]
             current = list(zip(winners[::2], winners[1::2]))

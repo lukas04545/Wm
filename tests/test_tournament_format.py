@@ -74,9 +74,10 @@ def test_r32_bracket_has_32_teams():
     bracket = build_r32_bracket(results, thirds)
     assert len(bracket) == 16  # 16 matches = 32 teams
     teams_in_bracket = set()
-    for home, away in bracket:
+    for home, away, city in bracket:
         teams_in_bracket.add(home)
         teams_in_bracket.add(away)
+        assert isinstance(city, str) and city  # real venue attached
     assert len(teams_in_bracket) == 32
 
 
@@ -140,3 +141,37 @@ def test_knockout_respects_played_result():
     winner = simulate_knockout_match("Brazil", "Argentina", venue_aware_predict_fn,
                                      rng, played=played)
     assert winner == "Argentina"
+
+
+def test_real_bracket_structure():
+    """The encoded R32 list must reproduce FIFA's official bracket flow."""
+    from wm.sim.tournament import R32_MATCHES
+
+    assert len(R32_MATCHES) == 16
+    match_by_no = {m[3]: m for m in R32_MATCHES}
+    # Official R16 pairings: 89=(74,77) 90=(73,75) 93=(83,84) 94=(81,82)
+    #                        91=(76,78) 92=(79,80) 95=(86,88) 96=(85,87)
+    # Sequential pairing means positions (0,1),(2,3)... must be those pairs,
+    # ordered so QF/SF flow also matches: [74,77,73,75,83,84,81,82,76,78,79,80,86,88,85,87]
+    expected_order = [74, 77, 73, 75, 83, 84, 81, 82, 76, 78, 79, 80, 86, 88, 85, 87]
+    assert [m[3] for m in R32_MATCHES] == expected_order
+    # Spot-check official slot compositions
+    assert match_by_no[73][:2] == ("A2", "B2")
+    assert match_by_no[76][:2] == ("C1", "F2")
+    assert match_by_no[79][0] == "A1" and match_by_no[79][2] == "Mexico City"
+    assert match_by_no[84][:2] == ("H1", "J2")
+    assert match_by_no[88][:2] == ("D2", "G2")
+
+
+def test_third_place_assignment_respects_allowed_sets():
+    from wm.sim.tournament import assign_third_place_slots, R32_MATCHES
+
+    allowed = {m[1]: set(m[1].split(":")[1]) for m in R32_MATCHES if m[1].startswith("3rd:")}
+
+    # Try several realistic 8-group combinations
+    for combo in [list("ABCDEFGH"), list("EFGHIJKL"), list("ACDFHIJL"), list("BCEFGIJK")]:
+        assignment = assign_third_place_slots(combo)
+        assert len(assignment) == 8
+        assert sorted(assignment.values()) == sorted(combo)  # each third used once
+        for slot, group in assignment.items():
+            assert group in allowed[slot], f"{group} not allowed in {slot} for {combo}"

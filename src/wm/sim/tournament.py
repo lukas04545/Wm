@@ -24,55 +24,83 @@ from wm import config as cfg_mod
 
 GROUP_LETTERS = list("ABCDEFGHIJKL")
 
-# Bracket structure (pre-defined by FIFA).
-# Each R32 match is (slot_home, slot_away).
-# Slots with "3rd_*" are filled based on which thirds qualified.
-# Based on FIFA 2026 bracket spec.
-R32_BRACKET = [
-    # Match 1-16 of R32
-    ("A1", "3rd_BCDE"),
-    ("B1", "A2"),
-    ("C1", "3rd_AFJK"),
-    ("D1", "C2"),
-    ("E1", "3rd_GHIL"),
-    ("F1", "E2"),
-    ("G1", "F2"),
-    ("H1", "G2"),
-    ("I1", "H2"),
-    ("J1", "I2"),
-    ("K1", "J2"),
-    ("L1", "K2"),
-    ("3rd_ABCD", "L2"),
-    ("3rd_EFGH", "D2"),
-    ("3rd_IJKL", "B2"),
-    ("3rd_5", "3rd_6"),
+# Real FIFA 2026 Round of 32 (matches 73-88), encoded in SEQUENTIAL-PAIRING
+# ORDER: pairing consecutive winners reproduces the official bracket flow
+#   R16:  89=(74,77) 90=(73,75) 93=(83,84) 94=(81,82)
+#         91=(76,78) 92=(79,80) 95=(86,88) 96=(85,87)
+#   QF:   97=(89,90) 98=(93,94) 99=(91,92) 100=(95,96)
+#   SF:   101=(97,98) 102=(99,100)
+# Slot syntax: "A1"=Group A winner, "B2"=runner-up, "3rd:ABCDF"=best third
+# from one of those groups (allowed-set per official bracket).
+# Each entry: (slot_home, slot_away, city, fifa_match_no)
+R32_MATCHES = [
+    ("E1", "3rd:ABCDF", "Foxborough", 74),
+    ("I1", "3rd:CDFGH", "East Rutherford", 77),
+    ("A2", "B2", "Inglewood", 73),
+    ("F1", "C2", "Guadalupe", 75),
+    ("K2", "L2", "Toronto", 83),
+    ("H1", "J2", "Inglewood", 84),
+    ("D1", "3rd:BEFIJ", "Santa Clara", 81),
+    ("G1", "3rd:AEHIJ", "Seattle", 82),
+    ("C1", "F2", "Houston", 76),
+    ("E2", "I2", "Arlington", 78),
+    ("A1", "3rd:CEFHI", "Mexico City", 79),
+    ("L1", "3rd:EHIJK", "Atlanta", 80),
+    ("J1", "H2", "Miami Gardens", 86),
+    ("D2", "G2", "Arlington", 88),
+    ("B1", "3rd:EFGIJ", "Vancouver", 85),
+    ("K1", "3rd:DEIJL", "Kansas City", 87),
 ]
 
-# Third-place bracket slot assignment rules (simplified):
-# Given sorted list of 8 qualifying third-placed groups,
-# assign them to the 3rd_* slots in R32_BRACKET.
-# The exact FIFA rules are complex (495 combinations in Annex C).
-# We implement the general principle: groups with lower letters go to earlier slots.
+# Venues for later rounds, in the same sequential-pairing order
+R16_CITIES = ["Houston", "Philadelphia", "Atlanta", "Seattle",
+              "East Rutherford", "Mexico City", "Atlanta", "Vancouver"]
+QF_CITIES = ["Foxborough", "Inglewood", "Miami Gardens", "Kansas City"]
+SF_CITIES = ["Arlington", "Atlanta"]
+FINAL_CITY = "East Rutherford"
+
+# Legacy alias kept for callers that only need (home, away) slots
+R32_BRACKET = [(m[0], m[1]) for m in R32_MATCHES]
+
+
 def assign_third_place_slots(groups_with_thirds: list[str]) -> dict[str, str]:
     """
-    Map 3rd_* slots in R32_BRACKET to actual teams.
-    groups_with_thirds: list of 8 group letters that produced qualifying thirds.
-    Returns mapping slot_name → group_letter.
+    Assign the 8 qualifying third-place groups to the eight "3rd:XXXXX" slots,
+    respecting each slot's allowed-group set (FIFA Annex C resolves the 495
+    combinations; we find a valid perfect matching by backtracking, which
+    reproduces a legal assignment for every combination).
+    Returns {slot_name: group_letter}.
     """
+    slots = [m[1] for m in R32_MATCHES if m[1].startswith("3rd:")]
+    allowed = {s: set(s.split(":")[1]) for s in slots}
     thirds = sorted(groups_with_thirds)
 
-    # Named slots in R32_BRACKET
-    slots = ["3rd_BCDE", "3rd_AFJK", "3rd_GHIL", "3rd_ABCD", "3rd_EFGH", "3rd_IJKL", "3rd_5", "3rd_6"]
+    # Backtracking perfect matching (8x8 — instant)
+    assignment: dict[str, str] = {}
 
-    # Map each slot to a group based on the combination
-    # This is a simplified but reasonable assignment
-    result: dict[str, str] = {}
-    slot_idx = 0
-    for g in thirds:
-        if slot_idx < len(slots):
-            result[slots[slot_idx]] = g
-            slot_idx += 1
-    return result
+    def backtrack(i: int, used: set[str]) -> bool:
+        if i == len(slots):
+            return True
+        slot = slots[i]
+        for g in thirds:
+            if g in used or g not in allowed[slot]:
+                continue
+            assignment[slot] = g
+            if backtrack(i + 1, used | {g}):
+                return True
+            del assignment[slot]
+        return False
+
+    if not backtrack(0, set()):
+        # No legal perfect matching (shouldn't happen for valid combos):
+        # relax constraints and assign greedily so the simulation continues.
+        assignment.clear()
+        remaining = list(thirds)
+        for slot in slots:
+            pick = next((g for g in remaining if g in allowed[slot]), remaining[0])
+            assignment[slot] = pick
+            remaining.remove(pick)
+    return assignment
 
 
 @dataclass
@@ -215,23 +243,16 @@ def build_r32_bracket(
         positions[f"{group}2"] = standings[1].team
         positions[f"{group}3"] = standings[2].team
 
-    # Assign 3rd-place slots
+    # Assign 3rd-place slots (constraint-respecting matching)
     slot_map = assign_third_place_slots(best_8_groups)
-    # Add direct mappings
     for slot, group in slot_map.items():
         positions[slot] = positions.get(f"{group}3", "TBD")
 
-    # Handle remaining 3rd/6th numbered slots
-    if "3rd_5" in positions or "3rd_6" in positions:
-        remaining = [t.team for t in third_place_ranking[6:8]]
-        positions["3rd_5"] = remaining[0] if len(remaining) > 0 else "TBD"
-        positions["3rd_6"] = remaining[1] if len(remaining) > 1 else "TBD"
-
     bracket = []
-    for home_slot, away_slot in R32_BRACKET:
+    for home_slot, away_slot, city, _match_no in R32_MATCHES:
         home = positions.get(home_slot, home_slot)
         away = positions.get(away_slot, away_slot)
-        bracket.append((home, away))
+        bracket.append((home, away, city))
 
     return bracket
 
@@ -245,12 +266,14 @@ def simulate_knockout_match(
     et_factor: float = 0.333,
     base_pen: float = 0.75,
     played: dict | None = None,
+    city: str | None = None,
 ) -> str:
     """
     Simulate a knockout match (must produce a winner).
     played: optional {frozenset({a, b}): winner} of already-decided knockout
     matches — if this pairing was played in reality, the real winner is
     returned instead of simulating.
+    city: real venue city for venue-aware features.
     Returns winning team name.
     """
     if played:
@@ -258,7 +281,10 @@ def simulate_knockout_match(
         if key in played:
             return played[key]
 
-    grid, (lh, la) = predict_fn(home, away, neutral=True)
+    try:
+        grid, (lh, la) = predict_fn(home, away, neutral=True, city=city)
+    except TypeError:  # predict_fn without city support (legacy/tests)
+        grid, (lh, la) = predict_fn(home, away, neutral=True)
     gh, ga = _sample_score(grid, rng)
 
     if gh != ga:

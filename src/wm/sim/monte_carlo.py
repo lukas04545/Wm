@@ -246,71 +246,52 @@ class TournamentSimulator:
                 stage_counts["group_qualified"][rec.team] += 1
                 qualifiers.add(rec.team)
 
-            # Build R32 bracket
+            # Build R32 bracket (real FIFA structure, with venues)
             bracket = trn.build_r32_bracket(group_results, third_ranking)
 
-            # Round of 32
-            for home, away in bracket:
+            ko_kwargs = dict(
+                max_goals=sim_cfg.max_goals_grid,
+                et_factor=sim_cfg.et_lambda_factor,
+                base_pen=sim_cfg.base_penalty_conversion,
+                played=self.played_knockouts,
+            )
+
+            # Round of 32 (real venue per match)
+            r32_winners = []
+            for home, away, city in bracket:
                 stage_counts["r32"][home] += 1
                 stage_counts["r32"][away] += 1
-
-            r32_winners = []
-            for home, away in bracket:
-                winner = trn.simulate_knockout_match(
-                    home, away, predict_fn, rng,
-                    max_goals=sim_cfg.max_goals_grid,
-                    et_factor=sim_cfg.et_lambda_factor,
-                    base_pen=sim_cfg.base_penalty_conversion,
-                    played=self.played_knockouts,
-                )
-                r32_winners.append(winner)
+                r32_winners.append(trn.simulate_knockout_match(
+                    home, away, predict_fn, rng, city=city, **ko_kwargs))
 
             # Round of 16
             r16_pairs = list(zip(r32_winners[::2], r32_winners[1::2]))
-            for h, a in r16_pairs:
+            r16_winners = []
+            for i, (h, a) in enumerate(r16_pairs):
                 stage_counts["r16"][h] += 1
                 stage_counts["r16"][a] += 1
-
-            r16_winners = [
-                trn.simulate_knockout_match(h, a, predict_fn, rng,
-                                             max_goals=sim_cfg.max_goals_grid,
-                                             et_factor=sim_cfg.et_lambda_factor,
-                                             base_pen=sim_cfg.base_penalty_conversion,
-                                             played=self.played_knockouts)
-                for h, a in r16_pairs
-            ]
+                r16_winners.append(trn.simulate_knockout_match(
+                    h, a, predict_fn, rng, city=trn.R16_CITIES[i], **ko_kwargs))
 
             # Quarterfinals
             qf_pairs = list(zip(r16_winners[::2], r16_winners[1::2]))
-            for h, a in qf_pairs:
+            qf_winners = []
+            for i, (h, a) in enumerate(qf_pairs):
                 stage_counts["quarterfinal"][h] += 1
                 stage_counts["quarterfinal"][a] += 1
-
-            qf_winners = [
-                trn.simulate_knockout_match(h, a, predict_fn, rng,
-                                             max_goals=sim_cfg.max_goals_grid,
-                                             et_factor=sim_cfg.et_lambda_factor,
-                                             base_pen=sim_cfg.base_penalty_conversion,
-                                             played=self.played_knockouts)
-                for h, a in qf_pairs
-            ]
+                qf_winners.append(trn.simulate_knockout_match(
+                    h, a, predict_fn, rng, city=trn.QF_CITIES[i], **ko_kwargs))
 
             # Semifinals
             sf_pairs = list(zip(qf_winners[::2], qf_winners[1::2]))
-            for h, a in sf_pairs:
+            sf_winners = []
+            for i, (h, a) in enumerate(sf_pairs):
                 stage_counts["semifinal"][h] += 1
                 stage_counts["semifinal"][a] += 1
+                sf_winners.append(trn.simulate_knockout_match(
+                    h, a, predict_fn, rng, city=trn.SF_CITIES[i], **ko_kwargs))
 
-            sf_winners = [
-                trn.simulate_knockout_match(h, a, predict_fn, rng,
-                                             max_goals=sim_cfg.max_goals_grid,
-                                             et_factor=sim_cfg.et_lambda_factor,
-                                             base_pen=sim_cfg.base_penalty_conversion,
-                                             played=self.played_knockouts)
-                for h, a in sf_pairs
-            ]
-
-            # Final
+            # Final (MetLife Stadium, East Rutherford)
             if len(sf_winners) >= 2:
                 finalist_1, finalist_2 = sf_winners[0], sf_winners[1]
                 stage_counts["final"][finalist_1] += 1
@@ -320,10 +301,7 @@ class TournamentSimulator:
 
                 champion = trn.simulate_knockout_match(
                     finalist_1, finalist_2, predict_fn, rng,
-                    max_goals=sim_cfg.max_goals_grid,
-                    et_factor=sim_cfg.et_lambda_factor,
-                    base_pen=sim_cfg.base_penalty_conversion,
-                    played=self.played_knockouts,
+                    city=trn.FINAL_CITY, **ko_kwargs,
                 )
                 stage_counts["champion"][champion] += 1
 
